@@ -44,3 +44,35 @@ export type AuthorizationAction = z.infer<
 >;
 export type WalletGrant = z.infer<typeof WalletGrantSchema>;
 export type Actor = z.infer<typeof ActorSchema>;
+
+const authenticatedActors = new WeakSet<Actor>();
+
+function freezeActor(actor: Actor): Actor {
+  const walletGrants = actor.walletGrants.map((grant) =>
+    Object.freeze({
+      ...grant,
+      actions: Object.freeze([...grant.actions]),
+    }),
+  );
+  return Object.freeze({
+    ...actor,
+    roles: Object.freeze([...actor.roles]),
+    walletGrants: Object.freeze(walletGrants),
+  }) as Actor;
+}
+
+/**
+ * Registers an immutable actor after its identity provider has verified the
+ * credential and the adapter has resolved it to a tenant-local actor.
+ */
+export function issueAuthenticatedActor(actor: Actor): Actor {
+  const issued = freezeActor(ActorSchema.parse(actor));
+  authenticatedActors.add(issued);
+  return issued;
+}
+
+export function assertAuthenticatedActor(actor: Actor): void {
+  if (!authenticatedActors.has(actor)) {
+    throw new Error("AUTHENTICATED_ACTOR_REQUIRED");
+  }
+}

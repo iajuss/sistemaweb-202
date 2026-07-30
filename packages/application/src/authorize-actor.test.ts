@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  Actor,
-  AuthorizationAction,
-  TenantContext,
-  WalletGrant,
+import {
+  issueAuthenticatedActor,
+  type Actor,
+  type AuthorizationAction,
+  type TenantContext,
+  type WalletGrant,
 } from "@panella/domain";
 
 import {
   authorizeActor,
+  readAuthorizedObservation,
   authorizeWalletCpfLookup,
   type WalletAuthorizationRepository,
 } from "./authorize-actor.js";
@@ -17,6 +19,7 @@ interface WalletFixture {
   readonly id: string;
   readonly tenantId: string;
   readonly cpfIndexes: readonly string[];
+  readonly debtorIds?: readonly string[];
 }
 
 class WalletRepositoryFixture implements WalletAuthorizationRepository {
@@ -68,9 +71,24 @@ class WalletRepositoryFixture implements WalletAuthorizationRepository {
       ),
     );
   }
+
+  public async containsDebtor(
+    context: TenantContext,
+    walletId: string,
+    debtorId: string,
+  ): Promise<boolean> {
+    return Boolean(
+      this.wallets.find(
+        (wallet) =>
+          wallet.id === walletId &&
+          wallet.tenantId === context.tenantId &&
+          wallet.debtorIds?.includes(debtorId),
+      ),
+    );
+  }
 }
 
-const agent: Actor = {
+const agent: Actor = issueAuthenticatedActor({
   id: "agent-a",
   kind: "AGENT",
   provider: "https://identity.example/realms/acme",
@@ -78,7 +96,7 @@ const agent: Actor = {
   tenantId: "tenant-a",
   roles: [],
   walletGrants: [],
-};
+});
 
 const cpfIndexer = {
   indexCpf: async (cpf: string, tenantId: string) =>
@@ -105,12 +123,12 @@ describe("authorizeActor", () => {
               },
             ],
       );
-      const candidate: Actor = {
+      const candidate: Actor = issueAuthenticatedActor({
         ...agent,
         id: `${kind.toLowerCase()}-a`,
         kind,
         roles,
-      };
+      });
 
       await expect(
         authorizeActor(candidate, "wallet-a", action, repository),
@@ -196,5 +214,110 @@ describe("authorizeWalletCpfLookup", () => {
         cpfIndexer,
       ),
     ).resolves.toEqual({ allowed: true });
+  });
+});
+
+describe("readAuthorizedObservation", () => {
+  it("does not read an observation for an agent without a current wallet grant", async () => {
+    const repository = new WalletRepositoryFixture(
+      [
+        {
+          id: "wallet-a",
+          tenantId: "tenant-a",
+          cpfIndexes: [],
+          debtorIds: ["debtor-a"],
+        },
+      ],
+      [],
+    );
+    let observationRead = false;
+    const observations = {
+      find: async (): Promise<{ readonly debtorId: string }> => {
+        observationRead = true;
+        return { debtorId: "debtor-a" };
+      },
+    };
+
+    await expect(
+      readAuthorizedObservation(
+        agent,
+        "wallet-a",
+        "observation-a",
+        repository,
+        observations,
+      ),
+    ).resolves.toBeNull();
+    expect(observationRead).toBe(false);
+  });
+
+  it("does not return an observation for a debtor outside the authorized wallet", async () => {
+    const repository = new WalletRepositoryFixture(
+      [
+        {
+          id: "wallet-a",
+          tenantId: "tenant-a",
+          cpfIndexes: [],
+          debtorIds: ["debtor-b"],
+        },
+      ],
+      [
+        {
+          actorId: "agent-a",
+          tenantId: "tenant-a",
+          walletId: "wallet-a",
+          actions: ["READ_DOSSIER"],
+        },
+      ],
+    );
+    const observations = {
+      find: async (): Promise<{ readonly debtorId: string }> => ({
+        debtorId: "debtor-a",
+      }),
+    };
+
+    await expect(
+      readAuthorizedObservation(
+        agent,
+        "wallet-a",
+        "observation-a",
+        repository,
+        observations,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it("returns an observation only after wallet authorization and debtor membership", async () => {
+    const repository = new WalletRepositoryFixture(
+      [
+        {
+          id: "wallet-a",
+          tenantId: "tenant-a",
+          cpfIndexes: [],
+          debtorIds: ["debtor-a"],
+        },
+      ],
+      [
+        {
+          actorId: "agent-a",
+          tenantId: "tenant-a",
+          walletId: "wallet-a",
+          actions: ["READ_DOSSIER"],
+        },
+      ],
+    );
+    const observation = { debtorId: "debtor-a" };
+    const observations = {
+      find: async (): Promise<typeof observation> => observation,
+    };
+
+    await expect(
+      readAuthorizedObservation(
+        agent,
+        "wallet-a",
+        "observation-a",
+        repository,
+        observations,
+      ),
+    ).resolves.toEqual(observation);
   });
 });

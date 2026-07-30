@@ -4,7 +4,7 @@ import type {
   HumanRole,
   WalletGrant,
 } from "./actor.js";
-import { ActorSchema } from "./actor.js";
+import { ActorSchema, assertAuthenticatedActor } from "./actor.js";
 
 export type { AuthorizationAction, WalletGrant } from "./actor.js";
 
@@ -12,6 +12,8 @@ export interface TenantContext {
   readonly tenantId: string;
   readonly actor: Actor;
 }
+
+const runtimeTenantContexts = new WeakSet<TenantContext>();
 
 export interface TenantScopedRepository<T> {
   save(context: TenantContext, value: T): Promise<void>;
@@ -71,6 +73,7 @@ export function authorize(
 }
 
 export function createTenantContext(actor: Actor): TenantContext {
+  assertAuthenticatedActor(actor);
   const parsedActor = ActorSchema.safeParse(actor);
   if (!parsedActor.success) {
     throw new Error("INVALID_ACTOR");
@@ -79,8 +82,25 @@ export function createTenantContext(actor: Actor): TenantContext {
     throw new Error("TENANT_CONTEXT_REQUIRED");
   }
 
-  return {
+  const context: TenantContext = Object.freeze({
     tenantId: parsedActor.data.tenantId,
     actor: parsedActor.data,
-  };
+  });
+  runtimeTenantContexts.add(context);
+  return context;
+}
+
+export function assertTenantContext(context: TenantContext): void {
+  if (!runtimeTenantContexts.has(context)) {
+    throw new Error("TENANT_CONTEXT_REQUIRED");
+  }
+
+  const parsedActor = ActorSchema.safeParse(context.actor);
+  if (
+    !parsedActor.success ||
+    !parsedActor.data.tenantId ||
+    parsedActor.data.tenantId !== context.tenantId
+  ) {
+    throw new Error("INVALID_TENANT_CONTEXT");
+  }
 }

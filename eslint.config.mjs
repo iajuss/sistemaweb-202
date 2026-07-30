@@ -20,6 +20,36 @@ export default tseslint.config(
               message:
                 "Raw Prisma is private to packages/adapters/src/repositories.",
             },
+            {
+              name: "@panella/domain",
+              importNames: ["issueAuthenticatedActor"],
+              message:
+                "Only the verified Keycloak adapter may issue a runtime-authenticated actor.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      "packages/domain/src/**/*.ts",
+      "packages/adapters/src/keycloak.ts",
+      "**/*.test.ts",
+    ],
+    ignores: [
+      "packages/adapters/src/repositories/**/*.test.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Raw Prisma is private to packages/adapters/src/repositories.",
+            },
           ],
         },
       ],

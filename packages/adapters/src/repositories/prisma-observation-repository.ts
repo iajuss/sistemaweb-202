@@ -137,10 +137,11 @@ export interface PrismaObservationRepositoryBundle {
 export function createPrismaObservationRepository(
   databaseUrl?: string,
 ): PrismaObservationRepositoryBundle {
+  if (databaseUrl !== undefined && typeof databaseUrl !== "string") {
+    throw new Error("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
+  }
   const client = new PrismaClient(
-    databaseUrl
-      ? { datasources: { db: { url: databaseUrl } } }
-      : undefined,
+    databaseUrl ? { datasources: { db: { url: databaseUrl } } } : undefined,
   );
   return {
     observations:

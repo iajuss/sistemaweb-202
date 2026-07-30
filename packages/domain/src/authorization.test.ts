@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Actor } from "./actor.js";
+import { issueAuthenticatedActor, type Actor } from "./actor.js";
 import {
   authorize,
   createTenantContext,
@@ -101,10 +101,16 @@ describe("authorize", () => {
 });
 
 describe("createTenantContext", () => {
+  it("rejects an actor-shaped value that was not issued after authentication", () => {
+    expect(() => createTenantContext(analyst)).toThrow(
+      "AUTHENTICATED_ACTOR_REQUIRED",
+    );
+  });
+
   it("rejects an actor without a tenant instead of creating a global context", () => {
     const unscoped = { ...analyst, tenantId: undefined };
 
-    expect(() => createTenantContext(unscoped)).toThrow(
+    expect(() => createTenantContext(issueAuthenticatedActor(unscoped))).toThrow(
       "TENANT_CONTEXT_REQUIRED",
     );
   });

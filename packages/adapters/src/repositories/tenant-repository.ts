@@ -1,6 +1,7 @@
-import type {
-  TenantContext,
-  TenantScopedRepository,
+import {
+  assertTenantContext,
+  type TenantContext,
+  type TenantScopedRepository,
 } from "@panella/domain";
 
 export interface TenantRecord {
@@ -22,12 +23,7 @@ export interface TenantTransactionDatabase<T extends TenantRecord> {
 }
 
 function assertContext(context: TenantContext): void {
-  if (
-    !context.tenantId ||
-    context.actor.tenantId !== context.tenantId
-  ) {
-    throw new Error("INVALID_TENANT_CONTEXT");
-  }
+  assertTenantContext(context);
 }
 
 function assertWriteScope(

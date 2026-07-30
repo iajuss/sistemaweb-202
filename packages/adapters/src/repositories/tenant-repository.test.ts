@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Actor, TenantContext } from "@panella/domain";
+import {
+  createTenantContext,
+  issueAuthenticatedActor,
+  type Actor,
+  type TenantContext,
+} from "@panella/domain";
 
 import {
   InMemoryTenantScopedRepository,
@@ -24,10 +29,8 @@ const actor = (tenantId: string): Actor => ({
   walletGrants: [],
 });
 
-const context = (tenantId: string): TenantContext => ({
-  tenantId,
-  actor: actor(tenantId),
-});
+const context = (tenantId: string): TenantContext =>
+  createTenantContext(issueAuthenticatedActor(actor(tenantId)));
 
 class RlsTransactionFixture
   implements TenantTransaction<ObservationFixture>
@@ -81,6 +84,19 @@ class RlsDatabaseFixture
 }
 
 describe("tenant-scoped repository", () => {
+  it("rejects a tenant context forged outside the actor runtime boundary", async () => {
+    const repository =
+      new InMemoryTenantScopedRepository<ObservationFixture>();
+    const forgedContext = {
+      tenantId: "tenant-a",
+      actor: actor("tenant-a"),
+    } satisfies TenantContext;
+
+    await expect(
+      repository.find(forgedContext, "observation-a"),
+    ).rejects.toThrow("TENANT_CONTEXT_REQUIRED");
+  });
+
   it("cannot read a tenant A observation through tenant B context", async () => {
     const repository =
       new InMemoryTenantScopedRepository<ObservationFixture>();

@@ -1,5 +1,6 @@
 import {
   IdentityRefSchema,
+  issueAuthenticatedActor,
   type Actor,
   type ActorKind,
   type HumanRole,
@@ -47,7 +48,7 @@ export function mapVerifiedKeycloakActor(
     subject: claims.sub,
   });
 
-  return {
+  return issueAuthenticatedActor({
     id: parsedProfile.actorId,
     kind: parsedProfile.kind,
     provider: identity.provider,
@@ -56,5 +57,5 @@ export function mapVerifiedKeycloakActor(
     roles: parsedProfile.roles,
     // Runtime grants are loaded from the domain repository for every request.
     walletGrants: [],
-  };
+  });
 }
