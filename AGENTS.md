@@ -146,3 +146,7 @@ valem mais que dez frágeis; não adicione fontes sem me perguntar.
 Quando um ADR fixar uma decisão nova que valha para sempre, acrescente **uma
 linha** aqui e aponte para o ADR. Este arquivo é a lista de invariantes, não o
 design doc — se passar de ~150 linhas, ele para de ser lido.
+
+## Commits
+
+Sempre pergunte se pode dar commits das mudanças realizadas.

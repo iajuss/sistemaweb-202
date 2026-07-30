@@ -111,7 +111,7 @@ Cada campo tem `valor`, `status`, `fonte`, `coletado_em`,
 semver; leitores aplicam upcast por major. `prompt_version` é independente e sua
 projeção markdown/texto é determinística e coberta por golden test.
 
-Não há CPF em URL. Agente usa `POST /v1/carteiras/{id}/dossies:lookup` com
+Não há CPF em URL. Agente usa `POST /v1/carteiras/{id}/dossies/lookup` com
 `id_externo` no corpo, e `GET /v1/carteiras/{id}/prioridades` com cursor. Também
 consome dossiê, prompt e registra desfecho apenas se tiver concessão da carteira.
 JSON Schema e OpenAPI derivam de Zod como única fonte de verdade.

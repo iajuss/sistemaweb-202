@@ -28,7 +28,7 @@ Para fonte `CARTEIRA_CLIENTE`, `confianca_vinculo` é `1.0` e a evidência é
 importado, não veracidade independente do dado. Não há resolução de identidade
 nesse caso.
 
-Agente resolve o ponto de entrada via `POST /v1/carteiras/{id}/dossies:lookup`,
+Agente resolve o ponto de entrada via `POST /v1/carteiras/{id}/dossies/lookup`,
 com `id_externo` no corpo; CPF não aparece em URL nem query string. A coleção de
 prioridades é cursor-paginada.
 
