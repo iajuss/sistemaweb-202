@@ -2,8 +2,16 @@
   "name": "@panella/contracts",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "generate": "node -e \"console.log('No contracts to generate during workspace bootstrap')\"",
+    "generate": "tsx src/generate.ts",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@panella/domain": "workspace:*",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6"
   }
 }
