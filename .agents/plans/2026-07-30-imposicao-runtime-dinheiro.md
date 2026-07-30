@@ -62,14 +62,14 @@ dossier monetary envelope. Implement the adapter normalizer for `1.234,56`,
 Add scoped ESLint selectors that ban TypeScript `number` and `z.number()` in
 the designated monetary modules.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `pnpm generate:contracts && pnpm test && pnpm lint && pnpm typecheck && git diff --check`
 
 Expected: all boundaries reject `number`; generated schemas keep the serialized
 centavos grammar; no monetary module contains prohibited numeric APIs.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/domain packages/contracts packages/adapters eslint.config.mjs
@@ -108,3 +108,47 @@ before their briefs are generated.
 Run the generator for Task 3 and inspect that its brief names tenant isolation,
 CPF handling, closed monetary boundaries where applicable and testable runtime
 acceptance criteria.
+
+### Task 3: Fábricas públicas sobre valor monetário inacessível
+
+**Files:**
+- Modify: `packages/domain/src/money.ts`, `packages/domain/src/money.test.ts`, `packages/domain/src/index.ts`
+- Modify: `docs/decisions/019-imposicao-runtime-de-invariantes-monetarios.md`, `docs/design/2026-07-30-imposicao-runtime-dinheiro.md`
+
+**Interfaces:** Exports the type `Money` and an object `Money` containing
+`fromCents`, `fromDecimalString` and a runtime assertion for trusted values;
+the implementation class is module-private and never exported.
+
+- [x] **Step 1: Write failing closure tests**
+
+Assert at runtime that the exported `Money` value is not constructible and that
+a forged object or `Object.create`d implementation prototype is rejected by the
+public boundary assertion. Preserve factory and serialized-centavos behavior.
+
+- [x] **Step 2: Run red tests**
+
+Run: `pnpm --filter @panella/domain test -- money`
+
+Expected: the current exported class remains constructible from JavaScript or
+the forged object passes the boundary assertion.
+
+- [x] **Step 3: Implement runtime closure**
+
+Keep the implementation class private to `money.ts`. Export only a type alias
+and frozen factory object. Store an ECMAScript private `#brand`; use its private
+brand check in the exported assertion so a same-shape forged object fails. Do
+not export a constructor, implementation class or structural conversion route.
+
+- [ ] **Step 4: Verify**
+
+Run: `pnpm test && pnpm lint && pnpm typecheck && git diff --check`
+
+Expected: the only runtime construction route is through named factories and
+the existing monetary grammar/invariants remain green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add packages/domain docs/decisions/019-imposicao-runtime-de-invariantes-monetarios.md docs/design/2026-07-30-imposicao-runtime-dinheiro.md
+git commit -m "fix: close monetary construction at runtime"
+```

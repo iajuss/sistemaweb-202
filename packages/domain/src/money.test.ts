@@ -3,6 +3,41 @@ import { describe, expect, it } from "vitest";
 import { Money, parseSerializedCents } from "./money.js";
 
 describe("Money", () => {
+  it("does not expose a constructible runtime value", () => {
+    expect(() =>
+      Reflect.construct(Money as unknown as new () => unknown, []),
+    ).toThrow(TypeError);
+  });
+
+  it("does not expose the implementation constructor through a trusted value", () => {
+    const trusted = Money.fromCents(123n);
+    const recoveredConstructor = Reflect.get(
+      Object.getPrototypeOf(trusted),
+      "constructor",
+    );
+
+    expect(() =>
+      Reflect.construct(
+        recoveredConstructor as new (cents: bigint) => unknown,
+        [123n],
+      ),
+    ).toThrow(TypeError);
+  });
+
+  it("accepts only factory-created values at the trusted-value boundary", () => {
+    const trusted = Money.fromCents(123n);
+
+    expect(() => Money.assert(trusted)).not.toThrow();
+    expect(() => Money.assert({ toCents: () => 123n })).toThrow(TypeError);
+  });
+
+  it("rejects an object created from the implementation prototype", () => {
+    const trusted = Money.fromCents(123n);
+    const prototypeForgery = Object.create(Object.getPrototypeOf(trusted));
+
+    expect(() => Money.assert(prototypeForgery)).toThrow(TypeError);
+  });
+
   it.each([
     123,
     "123",

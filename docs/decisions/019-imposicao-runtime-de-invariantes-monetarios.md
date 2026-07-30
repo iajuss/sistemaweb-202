@@ -13,16 +13,22 @@ ora unidades decimais.
 
 ## Decisão
 
-`Money` é um valor nominal/opaco com construtor fechado. Só
-`Money.fromCents(bigint)` e `Money.fromDecimalString(string)` criam a instância.
-O primeiro aceita somente `bigint`; o segundo aceita somente decimal canônico
-`^-?\d+\.\d{2}$`. Nenhuma função aceita objeto estrutural com aparência de
-dinheiro.
+`Money` é um tipo nominal/opaco cuja classe de implementação fica privada no
+módulo e carrega uma marca ECMAScript `#brand`. O valor runtime público
+`Money` é um objeto-fábrica congelado, não uma classe nem um construtor. Só
+`Money.fromCents(bigint)` e `Money.fromDecimalString(string)` criam a instância;
+`Money.assert(unknown)` aceita como confiável apenas valor que carregue a marca
+privada. O protótipo não expõe o construtor da implementação. Objeto com a mesma
+forma e objeto criado a partir do protótipo são rejeitados.
+
+`fromCents` aceita somente `bigint`; `fromDecimalString` aceita somente decimal
+canônico `^-?\d+\.\d{2}$`. Nenhuma função aceita objeto estrutural com aparência
+de dinheiro.
 
 `SerializedCentsSchema` é o schema Zod único de centavos transportados:
 `^-?\d+$`, sem `number`. A fronteira que precisa do valor de domínio usa seu
 parser derivado para validar a string e converter para `bigint` antes de chamar
-o construtor. Contratos JSON usam a mesma gramática, sem duplicá-la. Leituras
+o objeto-fábrica. Contratos JSON usam a mesma gramática, sem duplicá-la. Leituras
 de persistência e entradas HTTP/CSV/XLSX devem passar por essa fronteira.
 
 Arquivos de carteira não relaxam o domínio: o normalizador de borda aceita as
