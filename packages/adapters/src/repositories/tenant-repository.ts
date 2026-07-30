@@ -66,8 +66,8 @@ export class TransactionalTenantScopedRepository<T extends TenantRecord>
   public async save(context: TenantContext, value: T): Promise<void> {
     assertWriteScope(context, value);
     await this.database.transaction(async (transaction) => {
-      await transaction.assertApplicationRole();
       await transaction.setLocalTenant(context.tenantId);
+      await transaction.assertApplicationRole();
       await transaction.save(value);
     });
   }
@@ -78,8 +78,8 @@ export class TransactionalTenantScopedRepository<T extends TenantRecord>
   ): Promise<T | null> {
     assertContext(context);
     return this.database.transaction(async (transaction) => {
-      await transaction.assertApplicationRole();
       await transaction.setLocalTenant(context.tenantId);
+      await transaction.assertApplicationRole();
       const record = await transaction.find(id);
       return record?.tenantId === context.tenantId ? record : null;
     });

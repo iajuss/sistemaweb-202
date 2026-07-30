@@ -166,6 +166,8 @@ class InMemoryHmacSecretVault implements HmacSecretVault {
 }
 
 export class CpfCryptoService {
+  private readonly destroyedScopes = new Set<string>();
+
   public constructor(
     private readonly cipherKeys: CipherKeyVault,
     private readonly hmacSecrets: HmacSecretVault,
@@ -242,6 +244,7 @@ export class CpfCryptoService {
 
   public async destroyDebtorKey(context: CpfAssociatedData): Promise<void> {
     await this.cipherKeys.destroyKey(context);
+    this.destroyedScopes.add(scopeKey(context));
   }
 
   public async readDebtor(
@@ -249,6 +252,9 @@ export class CpfCryptoService {
   ): Promise<DebtorReadResult> {
     const key = await this.cipherKeys.readKey(record.keyReference);
     if (!key) {
+      if (!this.destroyedScopes.has(scopeKey(record))) {
+        throw new Error("DEBTOR_KEY_REFERENCE_INVALID");
+      }
       return {
         readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
         audit: record.audit,

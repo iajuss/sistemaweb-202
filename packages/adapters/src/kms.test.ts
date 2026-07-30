@@ -86,6 +86,19 @@ describe("CPF encryption", () => {
     });
     await expect(crypto.decryptCpf(recordB)).resolves.toBe("11144477735");
   });
+
+  it("rejects an absent key reference unless an explicit erasure tombstone exists", async () => {
+    const crypto = createInMemoryCpfCrypto();
+    const record = await crypto.encryptCpf(
+      "52998224725",
+      { tenantId: "tenant-a", debtorId: "debtor-a" },
+      audit,
+    );
+
+    await expect(
+      crypto.readDebtor({ ...record, keyReference: "corrupt-reference" }),
+    ).rejects.toThrow("DEBTOR_KEY_REFERENCE_INVALID");
+  });
 });
 
 describe("AWS KMS configuration", () => {

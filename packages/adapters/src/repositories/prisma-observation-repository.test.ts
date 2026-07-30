@@ -44,20 +44,20 @@ describe("Prisma observation repository", () => {
     ).toThrow("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
   });
 
-  it("sets the transaction-local tenant after rejecting bypass roles and before a query", async () => {
+  it("sets the transaction-local tenant before every role or observation query", async () => {
     const events: string[] = [];
     let applicationRoleChecked = false;
     let localTenant: string | undefined;
     const transaction = {
       $queryRaw: async () => {
+        if (localTenant !== "tenant-a") {
+          throw new Error("RLS_TENANT_NOT_SET");
+        }
         events.push("ROLE_CHECK");
         applicationRoleChecked = true;
         return [{ isSuperuser: false, canBypassRls: false }];
       },
       $queryRawUnsafe: async (_statement: string, tenantId: string) => {
-        if (!applicationRoleChecked) {
-          throw new Error("ROLE_CHECK_REQUIRED");
-        }
         events.push(`SET_LOCAL:${tenantId}`);
         localTenant = tenantId;
         return [{ set_config: tenantId }];
@@ -96,8 +96,8 @@ describe("Prisma observation repository", () => {
       tenantId: "tenant-a",
     });
     expect(events).toEqual([
-      "ROLE_CHECK",
       "SET_LOCAL:tenant-a",
+      "ROLE_CHECK",
       "FIND",
     ]);
   });
@@ -131,6 +131,6 @@ describe("Prisma observation repository", () => {
     await expect(
       repository.observations.find(context, "observation-a"),
     ).rejects.toThrow("APPLICATION_DATABASE_ROLE_MUST_ENFORCE_RLS");
-    expect(events).toEqual(["ROLE_CHECK"]);
+    expect(events).toEqual(["SET_LOCAL", "ROLE_CHECK"]);
   });
 });

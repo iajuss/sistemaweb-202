@@ -47,9 +47,6 @@ class RlsTransactionFixture
   }
 
   public async setLocalTenant(tenantId: string): Promise<void> {
-    if (!this.applicationRoleChecked) {
-      throw new Error("APPLICATION_ROLE_NOT_CHECKED");
-    }
     this.tenantId = tenantId;
   }
 
