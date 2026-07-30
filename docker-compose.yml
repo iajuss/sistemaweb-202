@@ -22,10 +22,18 @@ services:
     ports:
       - "8080:8080"
 
+  workspace-dependencies:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile"
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+
   web:
     image: node:22-bookworm-slim
     working_dir: /workspace
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm dev"
+    command: sh -c "corepack enable && pnpm dev"
     environment:
       DATABASE_URL: postgresql://dossie:dossie_local_only@postgres:5432/dossie_triagem
       KEYCLOAK_ISSUER_URL: http://keycloak:8080
@@ -34,15 +42,18 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      workspace-dependencies:
+        condition: service_completed_successfully
     volumes:
       - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
     ports:
       - "3000:3000"
 
   worker:
     image: node:22-bookworm-slim
     working_dir: /workspace
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm worker"
+    command: sh -c "corepack enable && pnpm worker"
     environment:
       DATABASE_URL: postgresql://dossie:dossie_local_only@postgres:5432/dossie_triagem
       KEYCLOAK_ISSUER_URL: http://keycloak:8080
@@ -51,8 +62,12 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_started
+      workspace-dependencies:
+        condition: service_completed_successfully
     volumes:
       - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
 
 volumes:
   postgres-data:
+  workspace-node-modules:
