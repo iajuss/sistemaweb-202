@@ -75,14 +75,11 @@ export function assertSchemaCompatibility(
   candidate: unknown,
 ): void {
   const result = DossierSchema.safeParse(candidate);
-  if (result.success) {
-    return;
+  if (!result.success) {
+    throw new TypeError("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
   }
 
-  const candidateVersion = z.object({ schema_version: SemanticVersionSchema }).safeParse(candidate);
-  if (candidateVersion.success && majorVersion(candidateVersion.data.schema_version) !== majorVersion(published.schema_version)) {
+  if (majorVersion(result.data.schema_version) !== majorVersion(published.schema_version)) {
     return;
   }
-
-  throw new TypeError("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
 }

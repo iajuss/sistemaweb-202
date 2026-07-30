@@ -536,103 +536,200 @@
       },
       "Classification": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "schema_version": {
-            "type": "string",
-            "pattern": "^\\d+\\.\\d+\\.\\d+$"
-          },
-          "classification_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "dossier_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "policy_version": {
-            "type": "string",
-            "minLength": 1
-          },
-          "classified_at": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-          },
-          "category": {
-            "type": "string",
-            "minLength": 1
-          },
-          "operational_priority": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "primary_strategy": {
-            "type": "string",
-            "minLength": 1
-          },
-          "cobertura": {
-            "type": "string",
-            "enum": [
-              "SUFICIENTE",
-              "INSUFICIENTE"
-            ]
-          },
-          "confianca_global": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "signals": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "nome": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "peso": {
-                  "type": "number"
-                },
-                "fonte": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "aplicado": {
-                  "type": "boolean"
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d+\\.\\d+$"
+              },
+              "classification_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dossier_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "classified_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "operational_priority": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "primary_strategy": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confianca_global": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "signals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "peso": {
+                      "type": "number"
+                    },
+                    "fonte": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "aplicado": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "nome",
+                    "peso",
+                    "fonte",
+                    "aplicado"
+                  ],
+                  "additionalProperties": false
                 }
               },
-              "required": [
-                "nome",
-                "peso",
-                "fonte",
-                "aplicado"
-              ],
-              "additionalProperties": false
-            }
+              "explicacao": {
+                "type": "string",
+                "minLength": 1
+              },
+              "category": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cobertura": {
+                "type": "string",
+                "const": "SUFICIENTE"
+              }
+            },
+            "required": [
+              "schema_version",
+              "classification_id",
+              "dossier_id",
+              "policy_version",
+              "classified_at",
+              "operational_priority",
+              "primary_strategy",
+              "confianca_global",
+              "signals",
+              "explicacao",
+              "category",
+              "cobertura"
+            ],
+            "additionalProperties": false
           },
-          "explicacao": {
-            "type": "string",
-            "minLength": 1
+          {
+            "type": "object",
+            "properties": {
+              "schema_version": {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d+\\.\\d+$"
+              },
+              "classification_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "dossier_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "policy_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "classified_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "operational_priority": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "primary_strategy": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confianca_global": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "signals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nome": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "peso": {
+                      "type": "number"
+                    },
+                    "fonte": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "aplicado": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "nome",
+                    "peso",
+                    "fonte",
+                    "aplicado"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "explicacao": {
+                "type": "string",
+                "minLength": 1
+              },
+              "category": {
+                "type": "string",
+                "const": "DADOS_INSUFICIENTES"
+              },
+              "cobertura": {
+                "type": "string",
+                "const": "INSUFICIENTE"
+              }
+            },
+            "required": [
+              "schema_version",
+              "classification_id",
+              "dossier_id",
+              "policy_version",
+              "classified_at",
+              "operational_priority",
+              "primary_strategy",
+              "confianca_global",
+              "signals",
+              "explicacao",
+              "category",
+              "cobertura"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "schema_version",
-          "classification_id",
-          "dossier_id",
-          "policy_version",
-          "classified_at",
-          "category",
-          "operational_priority",
-          "primary_strategy",
-          "cobertura",
-          "confianca_global",
-          "signals",
-          "explicacao"
-        ],
-        "additionalProperties": false
+        ]
       }
     }
   }

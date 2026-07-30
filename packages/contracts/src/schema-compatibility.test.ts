@@ -71,7 +71,7 @@ describe("dossier schema compatibility", () => {
       schema_version: "2.0.0",
       dossier_id: "dossier-1",
       composed_at: "2026-07-29T00:00:00.000Z",
-    })).not.toThrow();
+    })).toThrow("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
   });
 
   it("requires coverage and global confidence for agent-facing classifications", () => {
@@ -95,5 +95,28 @@ describe("dossier schema compatibility", () => {
     delete withoutRequiredFields.cobertura;
     delete withoutRequiredFields.confianca_global;
     expect(ClassificationSchema.safeParse(withoutRequiredFields).success).toBe(false);
+  });
+
+  it("requires DADOS_INSUFICIENTES when coverage is insufficient", () => {
+    const classification = {
+      schema_version: "1.0.0",
+      classification_id: "classification-insufficient-coverage",
+      dossier_id: "dossier-1",
+      policy_version: "2026-07-a",
+      classified_at: "2026-07-29T00:00:00.000Z",
+      category: "TRATAMENTO_LEVE",
+      operational_priority: 3,
+      primary_strategy: "CONTATO_INICIAL",
+      cobertura: "INSUFICIENTE",
+      confianca_global: 0.8,
+      signals: [],
+      explicacao: "A cobertura insuficiente deve impedir uma classificacao acionavel.",
+    };
+
+    expect(ClassificationSchema.safeParse(classification).success).toBe(false);
+    expect(ClassificationSchema.safeParse({
+      ...classification,
+      category: "DADOS_INSUFICIENTES",
+    }).success).toBe(true);
   });
 });
