@@ -13,16 +13,23 @@ const envelopeBase = {
 } as const;
 
 describe("dossier schema compatibility", () => {
-  it("rejects floating-point money and accepts cents serialized as a string", () => {
+  it.each([
+    29163886,
+    null,
+    29163886.44,
+    "29163886.44",
+  ])("rejects non-serialized cents in monetary envelopes %#", (valor) => {
     expect(DossierSchema.safeParse({
       schema_version: "1.0.0",
-      dossier_id: "dossier-money",
+      dossier_id: "dossier-money-invalid",
       composed_at: "2026-07-29T00:00:00.000Z",
       fields: {
-        divida_total: { ...envelopeBase, tipo_valor: "MONETARIO_CENTAVOS", valor: 29163886.44 },
+        divida_total: { ...envelopeBase, tipo_valor: "MONETARIO_CENTAVOS", valor },
       },
     }).success).toBe(false);
+  });
 
+  it("accepts cents serialized with the contract grammar", () => {
     expect(DossierSchema.safeParse({
       schema_version: "1.0.0",
       dossier_id: "dossier-money",

@@ -6,3 +6,16 @@ Task 2: WIP — implementation commits 587d70f and 9eb1063. First review request
 
 Task 1: fix round 1/5 (1 addressed, 0 open — Compose dependency install race; commits d744a67..c436178)
 Task 1: complete (commits f9575b8..c436178, review clean)
+
+Execution modes for remaining tasks (user-directed; preserve across session restarts):
+- Task 2: fix round 2/5 (2 addressed, 1 open — coverage now forces `DADOS_INSUFICIENTES`; invalid candidate is rejected after major change; `Money.fromCents` lacks a runtime bigint guard; commits 9eb1063..65b62cb).
+- Task 3: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+- Task 4: inline — no separate reviewer; retain TDD and verification.
+- Task 5: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+- Task 6: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+- Task 7: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+- Task 8: inline — no separate reviewer; retain TDD and verification.
+- Task 9: inline — no separate reviewer; retain TDD and verification.
+- Task 10: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+- Task 11: inline — no separate reviewer; retain TDD and verification.
+- Task 12: inline — no separate reviewer; retain TDD and verification.

@@ -169,6 +169,12 @@ git commit -m "feat: add versioned domain contracts"
 
 **Interfaces:** Consumes `Actor`; produces `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey` and `IdentityRef { provider, subject }`.
 
+**Acceptance criteria from AGENTS.md:**
+- Tenant identity and authorization are checked at runtime at every data-access boundary; a TypeScript `tenantId` type alone is never authorization.
+- A test must prove an observation created for tenant A is never readable by tenant B, and must fail if the runtime tenant-scope check is removed.
+- CPF remains ciphertext plus HMAC index; no mask fragment, plaintext CPF or decrypted value crosses persistence, logs, URL, query string or telemetry.
+- Debtor-key destruction is tenant-scoped and returns only the named internal `KEY_DESTROYED` condition; no ciphertext is exposed.
+
 - [ ] **Step 1: Write failing tenant and actor tests**
 
 ```ts

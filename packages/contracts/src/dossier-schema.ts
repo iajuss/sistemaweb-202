@@ -1,4 +1,4 @@
-import { SourceStatusSchema } from "@panella/domain";
+import { SerializedCentsSchema, SourceStatusSchema } from "@panella/domain";
 import { z } from "zod";
 
 const SemanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED");
@@ -19,7 +19,7 @@ const FieldEnvelopeBaseSchema = z.object({
 
 export const MonetaryFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
   tipo_valor: z.literal("MONETARIO_CENTAVOS"),
-  valor: z.string().regex(/^-?\d+$/, "CENTAVOS_SERIALIZADOS_COMO_STRING_REQUIRED"),
+  valor: SerializedCentsSchema,
 }).strict();
 
 export const TextFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({

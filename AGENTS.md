@@ -147,6 +147,13 @@ Quando um ADR fixar uma decisão nova que valha para sempre, acrescente **uma
 linha** aqui e aponte para o ADR. Este arquivo é a lista de invariantes, não o
 design doc — se passar de ~150 linhas, ele para de ser lido.
 
+Todo invariante precisa de imposição mecânica — teste ou lint — e não apenas de
+prosa; para dinheiro, `number` é proibido em toda fronteira e `string` só entra
+pela gramática ancorada do contrato. Ver ADR 019.
+
+Tipo não é imposição em runtime: toda fronteira de confiança precisa de guarda
+executável e de teste que falhe se ela for removida. Ver ADR 019.
+
 ## Commits
 
 Sempre pergunte se pode dar commits das mudanças realizadas.
