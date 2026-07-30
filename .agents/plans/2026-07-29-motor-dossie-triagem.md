@@ -167,13 +167,15 @@ git commit -m "feat: add versioned domain contracts"
 - Create: `packages/application/src/authorize-actor.ts`, `packages/adapters/src/kms.ts`, `packages/adapters/src/keycloak.ts`
 - Test: `packages/domain/src/authorization.test.ts`, `packages/application/src/authorize-actor.test.ts`, `packages/adapters/src/kms.test.ts`
 
-**Interfaces:** Consumes `Actor`; produces `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey` and `IdentityRef { provider, subject }`.
+**Interfaces:** Consumes `Actor`; produces `TenantContext { tenantId: string; actor: Actor }`, `TenantScopedRepository<T>` whose every read/write receives `TenantContext`, `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey`, `readDebtor` and `IdentityRef { provider, subject }`. `encryptCpf` and `decryptCpf` receive `{ tenantId, debtorId }` as AEAD associated-data inputs; `readDebtor` returns `{ readState: "ELIMINADO_A_PEDIDO_DO_TITULAR"; audit: AuditSkeleton }` after destroyed-key lookup.
 
 **Acceptance criteria from AGENTS.md:**
-- Tenant identity and authorization are checked at runtime at every data-access boundary; a TypeScript `tenantId` type alone is never authorization.
-- A test must prove an observation created for tenant A is never readable by tenant B, and must fail if the runtime tenant-scope check is removed.
-- CPF remains ciphertext plus HMAC index; no mask fragment, plaintext CPF or decrypted value crosses persistence, logs, URL, query string or telemetry.
-- Debtor-key destruction is tenant-scoped and returns only the named internal `KEY_DESTROYED` condition; no ciphertext is exposed.
+- Every tenant-scoped read and write uses a repository that requires runtime `TenantContext`; raw Prisma is forbidden outside that layer by an architectural test or lint rule. PostgreSQL RLS is enabled in production with transaction-scoped `SET LOCAL app.tenant_id`, never an application bypass.
+- The report must show RED output where an observation written for tenant A is readable by tenant B before the repository guard exists; the final test must fail if that guard is removed.
+- CPF is encrypted with AEAD using `tenant_id` and `debtor_id` as associated data; moving ciphertext to another debtor or tenant must fail to decrypt.
+- CPF lookup uses HMAC with a vault-held secret separate from the encryption key; no plain hash is allowed, and the ADR records that HMAC-key rotation requires reindexing.
+- Destroyed debtor key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR`, with audit skeleton available and no decrypt error or ciphertext exposed.
+- Runtime authorization runs on every human, agent and system-worker access. Backend lookup accepts only a CPF already present in an authorized imported wallet, and a test fails if this check is removed.
 
 - [ ] **Step 1: Write failing tenant and actor tests**
 
@@ -184,8 +186,20 @@ it("denies an agent a wallet grant from another tenant", () => {
 
 it("destroys only the selected debtor key", async () => {
   await destroyDebtorKey("debtor-a");
-  await expect(decryptCpf(recordA)).rejects.toThrow("KEY_DESTROYED");
+  await expect(readDebtor(recordA)).resolves.toMatchObject({
+    readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
+    audit: expect.any(Object),
+  });
   await expect(decryptCpf(recordB)).resolves.toBe("valid");
+});
+
+it("cannot read a tenant A observation through tenant B context", async () => {
+  await repositoryFor(tenantA).save(observationForTenantA);
+  await expect(repositoryFor(tenantB).find(observationForTenantA.id)).resolves.toBeNull();
+});
+
+it("rejects ciphertext copied to another tenant or debtor", async () => {
+  await expect(decryptCpf({ ...recordA, tenantId: tenantB.id })).rejects.toThrow("AEAD_AUTH_FAILED");
 });
 ```
 
@@ -197,13 +211,13 @@ Expected: failures because policy and key interfaces do not exist.
 
 - [ ] **Step 3: Implement schema and ports**
 
-Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables. Store CPF ciphertext, HMAC index and `key_reference`; do not add a persisted mask fragment. Implement domain authorization independently of Keycloak. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for tests and AWS KMS adapter configuration for production.
+Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables with production RLS policies. Expose only tenant-context repositories; use transaction-local tenant session state and prohibit raw Prisma outside repositories. Store AEAD CPF ciphertext, HMAC index and `key_reference`; HMAC and cipher use separate vault keys and no persisted mask fragment exists. Implement domain authorization independently of Keycloak for human, agent and system worker. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for offline tests and AWS KMS configuration for production.
 
 - [ ] **Step 4: Verify tenant isolation**
 
 Run: `pnpm exec prisma migrate dev && pnpm test && pnpm typecheck`
 
-Expected: tenant-crossing read is denied; destroyed key returns named `KEY_DESTROYED` internally without exposing ciphertext.
+Expected: RED evidence proves the original A-to-B leak before the guard; final tenant-crossing read is denied by repository and RLS integration coverage, copied ciphertext fails AEAD authentication, HMAC key material is separate, and destroyed key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR` without exposing ciphertext.
 
 - [ ] **Step 5: Commit**
 

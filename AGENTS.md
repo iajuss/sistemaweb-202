@@ -154,6 +154,10 @@ pela gramática ancorada do contrato. Ver ADR 019.
 Tipo não é imposição em runtime: toda fronteira de confiança precisa de guarda
 executável e de teste que falhe se ela for removida. Ver ADR 019.
 
+Toda persistência tenant-scoped passa por repositório com `TenantContext`; em
+produção, RLS do Postgres é segunda barreira e nunca há bypass de aplicação.
+Ver ADR 020.
+
 ## Commits
 
 Sempre pergunte se pode dar commits das mudanças realizadas.
