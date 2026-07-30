@@ -1,0 +1,9 @@
+{
+  "name": "@panella/worker",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "start": "node -e \"console.log('Worker entrypoint is not implemented yet'); setInterval(() => {}, 1000)\"",
+    "test": "vitest run --passWithNoTests"
+  }
+}

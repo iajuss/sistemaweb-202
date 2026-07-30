@@ -1,0 +1,8 @@
+{
+  "name": "@panella/adapters",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  }
+}

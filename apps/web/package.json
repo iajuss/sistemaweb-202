@@ -1,0 +1,9 @@
+{
+  "name": "@panella/web",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "node -e \"console.log('Web delivery surface is not implemented yet'); setInterval(() => {}, 1000)\"",
+    "test": "vitest run --passWithNoTests"
+  }
+}

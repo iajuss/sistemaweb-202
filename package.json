@@ -1,0 +1,24 @@
+{
+  "name": "panella-dossie-triagem",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "pnpm -r test",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --project tsconfig.base.json --noEmit",
+    "generate:contracts": "pnpm --filter @panella/contracts generate",
+    "dev": "pnpm --filter @panella/web dev",
+    "worker": "pnpm --filter @panella/worker start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^22.15.0",
+    "eslint": "^9.35.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.42.0",
+    "vitest": "^3.2.4"
+  }
+}
