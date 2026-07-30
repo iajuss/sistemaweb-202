@@ -4,6 +4,10 @@ export class Money {
   private constructor(private readonly cents: bigint) {}
 
   static fromCents(cents: bigint): Money {
+    if (typeof cents !== "bigint") {
+      throw new TypeError("MONEY_CENTS_MUST_BE_A_BIGINT");
+    }
+
     return new Money(cents);
   }
 

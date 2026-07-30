@@ -10,4 +10,8 @@ describe("Money", () => {
   it("rejects number inputs so monetary values cannot use floating point", () => {
     expect(() => Money.fromDecimalString(29163886.44 as never)).toThrow(TypeError);
   });
+
+  it("rejects number inputs passed to fromCents at runtime", () => {
+    expect(() => Money.fromCents(123 as unknown as bigint)).toThrow(TypeError);
+  });
 });
