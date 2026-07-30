@@ -8,6 +8,8 @@ Task 1: fix round 1/5 (1 addressed, 0 open — Compose dependency install race; 
 Task 1: complete (commits f9575b8..c436178, review clean)
 
 Execution modes for remaining tasks (user-directed; preserve across session restarts):
+Task 2: rounds 2-5 exposed the same root cause: acceptance criteria were absent from the brief and TypeScript types were treated as trust boundaries without executable runtime enforcement. The monetary invariant is now enforced by factories, Zod parsing, lint and red/green tests; Task 3 brief explicitly requires a runtime tenant-isolation leak test.
+Task 2: complete (commits 587d70f..0e7ef2d, review clean; final review base 1db4f7e, informational plan observation recorded).
 - Task 2: fix round 2/5 (2 addressed, 1 open — coverage now forces `DADOS_INSUFICIENTES`; invalid candidate is rejected after major change; `Money.fromCents` lacks a runtime bigint guard; commits 9eb1063..65b62cb).
 - Task 3: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
 - Task 4: inline — no separate reviewer; retain TDD and verification.
