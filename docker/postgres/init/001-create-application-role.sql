@@ -1,0 +1,10 @@
+CREATE ROLE dossie_app
+  LOGIN
+  NOSUPERUSER
+  NOCREATEDB
+  NOCREATEROLE
+  NOBYPASSRLS
+  NOREPLICATION
+  PASSWORD 'dossie_app_local_only';
+
+GRANT CONNECT ON DATABASE dossie_triagem TO dossie_app;

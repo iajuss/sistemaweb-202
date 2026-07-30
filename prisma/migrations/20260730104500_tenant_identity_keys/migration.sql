@@ -130,3 +130,9 @@ ALTER TABLE "Observation" FORCE ROW LEVEL SECURITY;
 CREATE POLICY "Observation_scope" ON "Observation"
   USING ("tenantId" = current_setting('app.tenant_id', true))
   WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
+
+REVOKE CREATE ON SCHEMA public FROM dossie_app;
+GRANT USAGE ON SCHEMA public TO dossie_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dossie_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE dossie_owner IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dossie_app;
