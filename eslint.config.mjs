@@ -8,6 +8,24 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["**/*.ts"],
+    ignores: ["packages/adapters/src/repositories/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@prisma/client",
+              message:
+                "Raw Prisma is private to packages/adapters/src/repositories.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: [
       "packages/domain/src/money.ts",
       "packages/adapters/src/money-normalizer.ts",

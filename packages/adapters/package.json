@@ -2,7 +2,13 @@
   "name": "@panella/adapters",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@panella/domain": "workspace:*",
+    "@prisma/client": "6.19.0",
+    "zod": "4.1.12"
   }
 }
