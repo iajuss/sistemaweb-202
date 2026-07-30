@@ -6,10 +6,9 @@ const SemanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIR
 export const SourceProvenanceSchema = z.object({
   fonte: z.string().min(1),
   parametros_consulta: z.record(z.string(), z.unknown()),
-});
+}).strict();
 
-export const FieldEnvelopeSchema = z.object({
-  valor: z.unknown().nullable(),
+const FieldEnvelopeBaseSchema = z.object({
   status: SourceStatusSchema,
   fonte: SourceProvenanceSchema,
   coletado_em: z.iso.datetime(),
@@ -18,12 +17,51 @@ export const FieldEnvelopeSchema = z.object({
   evidencia_vinculo: z.array(z.string()),
 });
 
+export const MonetaryFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("MONETARIO_CENTAVOS"),
+  valor: z.string().regex(/^-?\d+$/, "CENTAVOS_SERIALIZADOS_COMO_STRING_REQUIRED"),
+}).strict();
+
+export const TextFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("TEXTO"),
+  valor: z.string(),
+}).strict();
+
+export const BooleanFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("BOOLEANO"),
+  valor: z.boolean(),
+}).strict();
+
+export const DateTimeFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("DATA_HORA"),
+  valor: z.iso.datetime(),
+}).strict();
+
+export const TextListFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("LISTA_TEXTO"),
+  valor: z.array(z.string()),
+}).strict();
+
+export const EmptyFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
+  tipo_valor: z.literal("SEM_VALOR"),
+  valor: z.null(),
+}).strict();
+
+export const FieldEnvelopeSchema = z.discriminatedUnion("tipo_valor", [
+  MonetaryFieldEnvelopeSchema,
+  TextFieldEnvelopeSchema,
+  BooleanFieldEnvelopeSchema,
+  DateTimeFieldEnvelopeSchema,
+  TextListFieldEnvelopeSchema,
+  EmptyFieldEnvelopeSchema,
+]);
+
 export const DossierSchema = z.object({
   schema_version: SemanticVersionSchema,
   dossier_id: z.string().min(1),
   composed_at: z.iso.datetime(),
   fields: z.record(z.string(), FieldEnvelopeSchema),
-});
+}).strict();
 
 export type FieldEnvelope = z.infer<typeof FieldEnvelopeSchema>;
 export type Dossier = z.infer<typeof DossierSchema>;

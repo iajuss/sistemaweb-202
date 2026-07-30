@@ -21,85 +21,500 @@
         "type": "string"
       },
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "valor": {
-            "anyOf": [
-              {},
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "ENCONTRADO",
-              "NAO_ENCONTRADO",
-              "NAO_CONSULTADO",
-              "ERRO_NA_FONTE"
-            ]
-          },
-          "fonte": {
+        "anyOf": [
+          {
             "type": "object",
             "properties": {
-              "fonte": {
+              "status": {
                 "type": "string",
-                "minLength": 1
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
               },
-              "parametros_consulta": {
+              "fonte": {
                 "type": "object",
-                "propertyNames": {
-                  "type": "string"
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
                 },
-                "additionalProperties": {}
-              }
-            },
-            "required": [
-              "fonte",
-              "parametros_consulta"
-            ],
-            "additionalProperties": false
-          },
-          "coletado_em": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-          },
-          "data_referencia": {
-            "anyOf": [
-              {
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
                 "type": "string",
                 "format": "date-time",
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
               },
-              {
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "MONETARIO_CENTAVOS"
+              },
+              "valor": {
+                "type": "string",
+                "pattern": "^-?\\d+$"
+              }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
+              },
+              "fonte": {
+                "type": "object",
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "TEXTO"
+              },
+              "valor": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
+              },
+              "fonte": {
+                "type": "object",
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "BOOLEANO"
+              },
+              "valor": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
+              },
+              "fonte": {
+                "type": "object",
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "DATA_HORA"
+              },
+              "valor": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
+              },
+              "fonte": {
+                "type": "object",
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "LISTA_TEXTO"
+              },
+              "valor": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ENCONTRADO",
+                  "NAO_ENCONTRADO",
+                  "NAO_CONSULTADO",
+                  "ERRO_NA_FONTE"
+                ]
+              },
+              "fonte": {
+                "type": "object",
+                "properties": {
+                  "fonte": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "parametros_consulta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "fonte",
+                  "parametros_consulta"
+                ],
+                "additionalProperties": false
+              },
+              "coletado_em": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "data_referencia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confianca_vinculo": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "evidencia_vinculo": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tipo_valor": {
+                "type": "string",
+                "const": "SEM_VALOR"
+              },
+              "valor": {
                 "type": "null"
               }
-            ]
-          },
-          "confianca_vinculo": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          },
-          "evidencia_vinculo": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+            },
+            "required": [
+              "status",
+              "fonte",
+              "coletado_em",
+              "data_referencia",
+              "confianca_vinculo",
+              "evidencia_vinculo",
+              "tipo_valor",
+              "valor"
+            ],
+            "additionalProperties": false
           }
-        },
-        "required": [
-          "valor",
-          "status",
-          "fonte",
-          "coletado_em",
-          "data_referencia",
-          "confianca_vinculo",
-          "evidencia_vinculo"
-        ],
-        "additionalProperties": false
+        ]
       }
     }
   },
