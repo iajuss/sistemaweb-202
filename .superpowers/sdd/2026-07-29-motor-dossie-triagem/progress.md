@@ -207,3 +207,75 @@ verificado". Nothing in the code invents a response shape — an unexpected
 layout fails loudly instead of yielding empty fields.
 
 Next: finish Task 8 with the manual list importer, then Task 5.
+
+---
+
+Task 8: CLOSED (commits `3172464..28abb9d`). Suite: 217 tests, 0 failures, 0
+skipped. Lint, typecheck and contract generation exit 0, no drift.
+
+**The XLSX gap is closed, and closing it changed a decision.**
+
+Local verification against the real, gitignored export
+(`lista-devedores-pgfn-2026-07-27.xlsx`, run locally, file not committed, no
+cell content printed): the hand-written reader read an Excel-produced workbook
+in full — 11 zip entries, 102 rows spanning row numbers 1 to 109, the filter
+preamble, the header at row 13, 91 data rows, four blank rows (17, 67, 70, 75)
+and seven row numbers Excel omits from the XML entirely (2, 3, 8, 9, 11, 12 and
+**60**, that last one inside the data). `Valor Total` diverges from `Valor da
+Dívida Selecionada` in **31 of 91** records, exactly as `AGENTS.md` records.
+
+Two things that verification found, neither of which the synthetic fixture
+could have shown:
+
+1. **17 of 91 `Valor Total` cells carry non-zero excess precision**, up to
+   fourteen decimal places. The strict wallet rule would have quarantined a
+   fifth of the real source. ADR 023 splits the two cases: the wallet keeps the
+   strict rule (padding zeros exact, non-zero precision quarantined), while a
+   published value is rounded half up on the third decimal in `BigInt`
+   arithmetic, keeps its published text verbatim, and declares the rounding via
+   `roundedFromExcessPrecision`. `normalizeSourceMoney` contains no `Number`,
+   `parseFloat` or `parseInt`, and a test asserts that.
+2. **A one-row gap is formatting, not a block boundary** — Excel drops empty
+   row 60 from the middle of the data. The first block-detection attempt split
+   the file into three blocks of 45 rows. Threshold is now two empty rows,
+   documented as an unverified heuristic (F-4).
+
+`fixtures/pgfn/lista-manual.xlsx` is now **produced by Excel itself**: the real
+export opened read-only, every mask and name replaced with a synthetic one,
+saved through Excel via `scripts/make-pgfn-list-fixture.ps1`. The XML is
+genuinely Excel's — theme, styles, docProps — and no real person is in the
+repository. Preserved patterns: 4-9 mask format, two people sharing one mask,
+the search term scattered through names in different positions and orders, the
+filter preamble, blank rows, rows absent from the XML, the
+`29163886,440000001` artefact, and an orphan block with no preamble.
+
+Also landed: `list-importer.ts` with per-block provenance, `queryScope.complete
+= false` so filtered absence can never read as "no debt", both amounts kept as
+independent fields with no fallback, and a block without provenance marked
+`SEM_PROCEDENCIA` rather than merged.
+
+Two corrections to my own work, both caught by mutation rather than by reading:
+a test claiming the importer survived non-breaking spaces in amounts passed
+with the defense removed; the defense was unnecessary anyway, because
+JavaScript `trim` removes every Zs code point and not only U+0020, so the
+comment asserting the opposite was wrong. Behaviour is now pinned in the domain
+instead.
+
+`AGENTS.md` commit rule corrected (user-directed): commit each stable step
+without asking; ask before anything destructive — history rewrite, database
+reset, migration deletion, tracked-file removal. An invariant that execution
+disobeys session after session is a false guarantee, the same class of defect
+as the dead lint rule in M-1.
+
+**Task 6.5 created and positioned** (user-directed): persistence of wallet and
+observations in PostgreSQL, immediately after Task 6 and before Task 7, so
+dossier and classification are born on real storage rather than on the
+in-memory store Task 4 shipped. Full acceptance criteria are in the plan. This
+replaces the "natural trigger at Task 11" framing, which was a pendency with no
+position — the thing that keeps pendencies from ever being done.
+
+New documented limits: F-3 (Dados Abertos column layout not contract-verified;
+unexpected layout fails loudly) and F-4 (block separator heuristic).
+
+Next: Task 5 — identity resolution, which already has `mask.ts` and the
+homonym/shared-mask fixtures waiting for it.

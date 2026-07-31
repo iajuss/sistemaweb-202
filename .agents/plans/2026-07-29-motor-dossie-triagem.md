@@ -29,7 +29,7 @@ nenhuma das quatro funcionalidades do enunciado funcionando. O objetivo passa a
 ser **atravessar o sistema de ponta a ponta com as quatro funcionalidades
 estreitas**, não completar duas delas em profundidade.
 
-**Ordem de execução:** 4 → 8 → 5 → 6 → 7 → 11 → 9 → 10 → 12.
+**Ordem de execução:** 4 → 8 → 5 → 6 → **6.5** → 7 → 11 → 9 → 10 → 12.
 
 | Ordem | Task | Entrega estreita |
 |---|---|---|
@@ -37,8 +37,9 @@ estreitas**, não completar duas delas em profundidade.
 | 2 | 8 | PGFN Dados Abertos — uma fonte só, funcionando |
 | 3 | 5 | Resolução de identidade |
 | 4 | 6 | Observações, cobertura e dossiê |
-| 5 | 7 | Política de triagem e desfechos |
-| 6 | 11 | API agent-first, contratos e endpoint de prompt |
+| 5 | **6.5** | **Persistência de carteira e observações em PostgreSQL** |
+| 6 | 7 | Política de triagem e desfechos |
+| 7 | 11 | API agent-first, contratos e endpoint de prompt |
 
 **Escopo reduzido do que sobra:**
 
@@ -406,6 +407,47 @@ Expected: observations can be re-resolved before purge; no snapshot changes afte
 git add prisma packages/domain packages/application packages/adapters
 git commit -m "feat: compose immutable dossiers from observations"
 ```
+
+### Task 6.5: Persistência de carteira e observações em PostgreSQL
+
+Criada em 2026-07-31, por decisão explícita do usuário, para tirar a
+persistência da condição de pendência sem posição. A Task 4 entregou os títulos
+atrás das portas `WalletImportStore` com implementação **em memória**; a Task 8
+entregou observações PGFN como valores em memória. Deixar isso para a Task 11 —
+a última da fila — é o modo conhecido de uma pendência nunca chegar. Dossiê e
+classificação precisam nascer sobre persistência real, com os repositórios
+Prisma que a fatia 3 construiu.
+
+**Posição:** imediatamente após a Task 6, antes da Task 7.
+
+**Files:**
+- Create: `packages/adapters/src/repositories/prisma-wallet-repository.ts`
+- Modify: `packages/adapters/src/repositories/prisma-observation-repository.ts`
+- Modify: `prisma/schema.prisma` (nome do devedor no título, auditoria de importação)
+- Test: `packages/adapters/src/repositories/prisma-wallet-repository.test.ts`
+
+**Interfaces:** implementa `WalletImportStore` sobre Prisma, com a mesma
+autoridade das classes existentes: emissão por fábrica, campos `#`, protótipo
+congelado, `VerifiedPrincipal` mais `AuthorizedOperation` em toda chamada.
+
+**Critérios de aceitação:**
+
+- As mesmas suítes de `import-wallet` passam contra PostgreSQL, não só contra a
+  implementação em memória. Idempotência por `id_externo` sob índice único real
+  `(tenantId, walletId, externalId)`, não apenas por chave de `Map`.
+- Escrita e leitura entram no teste de isolamento tenant A → B já existente, com
+  RLS ativa; a nova classe entra na lista `describe.each` dos invariantes
+  arquiteturais de `tenant-repository.test.ts`.
+- CPF cifrado em repouso, índice HMAC no banco, e nenhuma consulta com CPF em
+  claro em parâmetro, log ou mensagem de erro.
+- Observação PGFN persistida como fato tenant + devedor, sem `walletId`
+  (ADR 020), reutilizável entre carteiras que contenham o mesmo devedor.
+- Auditoria de importação em tabela append-only.
+- Migração aplicada por `prisma migrate deploy` no Compose, com `migrate diff
+  --exit-code` vazio ao final.
+
+**Steps:** RED de idempotência contra o índice único real antes da migração;
+migração e repositório; execução da suíte com Compose de pé; commit.
 
 ### Task 7: Política de triagem, ordenação e desfechos
 

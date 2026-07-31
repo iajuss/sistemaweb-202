@@ -40,6 +40,8 @@ comum da maior parte da lista.
 | # | O que é | Por que não alcançável hoje | Gatilho para fechar |
 |---|---|---|---|
 | F-1 | QSA/RFB e Portal da Transparência ficam **mapeados e não integrados**, com adapter stub e documentação em `docs/fontes.md`. | Decisão de escopo por prazo; o enunciado autoriza fonte mapeada e não integrada. | Só se a política de triagem passar a depender de sinal dessas fontes. Hoje o sinal de QSA tem peso e contribuição zero por decisão do ADR 012. |
+| F-3 | Layout de colunas dos Dados Abertos PGFN segue o publicado e **não é verificado por contrato**. | Não há amostra real de Dados Abertos; a Lista manual, essa sim, foi conferida contra arquivo real. | Primeira execução do worker contra arquivo publicado de verdade. Layout inesperado falha alto (`LAYOUT_PGFN_INVALIDO`), nunca devolve campo vazio. |
+| F-4 | Detecção de bloco na Lista manual usa limiar de **duas linhas vazias**, heurística não verificada. | Nenhum export real com duas consultas concatenadas estava disponível; o arquivo real conferido tem uma consulta só. | Primeiro export real concatenado. Custo de errar é limitado por desenho: bloco sem preâmbulo é marcado `SEM_PROCEDENCIA`, nunca fundido. |
 | F-2 | Lista PGFN manual não é raspada em nenhuma hipótese (ADR 015); a entrada é upload manual. | Decisão fechada em ADR, não pendência. | Nunca. Registrado aqui para não ser relido como lacuna. |
 
 ## Ambiente
