@@ -1227,3 +1227,69 @@ contra os arquivos antes do commit — documento que aponta para teste inexisten
 é pior que documento nenhum.
 
 Linkado no `README.md` e na seção "Onde as coisas ficam" do `AGENTS.md`.
+
+## Task 12: FECHADA — UI mínima, duas telas
+
+Suíte: **523 unitários** (era 505) e 13 de integração, 0 falhas. `lint`,
+`typecheck` e `generate:contracts` saem 0, sem deriva. As duas telas foram
+buscadas do servidor real, com dado vindo do PostgreSQL.
+
+`apps/web/src/http/views.ts` renderiza HTML no servidor a partir dos mesmos
+handlers, **sem dependência nova e sem framework**. Duas rotas no mesmo
+roteador: `GET /carteiras/:walletId/prioridades` e
+`GET /carteiras/:walletId/dossies/:dossierId`. Decisões em
+[ADR 024](../../../docs/decisions/024-ui-servida-pelo-mesmo-roteador-sem-framework.md).
+
+**A audiência da visão é função da ação autorizada.** `READ_ACTIONABLE` rende a
+visão do operador, `READ_DOSSIER` a do analista, `READ_AUDIT` a da auditoria. A
+página do dossiê autoriza `READ_ACTIONABLE` como piso e pergunta ao **mesmo
+caminho de autorização** se aquela concessão também alcança `READ_DOSSIER`.
+Papel escolhido por query string seria escalonamento de privilégio com barra de
+endereço.
+
+**Um defeito que só o sistema rodando encontrou.** A tela do dossiê chamava
+`findInWallet`, que decifra o CPF e por isso exige `READ_DOSSIER`; sob a
+autorização de operador o repositório real respondeu
+`OPERATION_ACTION_FORBIDDEN`. Os testes unitários não pegaram porque o fake da
+suíte não impõe ação. **A correção não foi alargar a permissão** — foi tirar o
+CPF do caminho: `findNameInWallet` lê o nome dos próprios títulos da carteira
+sob `READ_ACTIONABLE` e não toca a linha do devedor. O CPF existe para o
+matcher, e tela não é matcher. `projectDossierForRole` passou a aceitar devedor
+sem CPF, com a guarda rodando só o padrão pontuado nesse caso — garantia mais
+estreita e posição mais forte, porque página não vaza documento que nunca
+recebeu. Isso é estrutura, e vale mais que varredura.
+
+**White label sem valor padrão.** `PrismaTenantThemeRepository` lê nome do
+produto, marca e cores da linha do tenant, com a mesma autoridade das outras —
+emissão por fábrica conferida a cada chamada, campos `#`, protótipo e instância
+congelados — e entrou na lista `describe.each` dos invariantes arquiteturais.
+Tenant sem tema devolve 500 `TEMA_NAO_CONFIGURADO`: um padrão embutido seria a
+marca da desenvolvedora com outro nome. O favicon é um disco na cor do tenant,
+gerado inline.
+
+**Credencial no navegador por HTTP Basic**, e só na raiz de composição da
+demonstração. O roteador continua chamando `deps.authenticate(request)`, fixado
+na construção e inalcançável pela requisição (I-3 segue fechado); o que mudou é
+que a resposta 401 **de página** acompanha `WWW-Authenticate`, então o navegador
+pede a credencial e a manda no mesmo cabeçalho `Authorization` que a API já usa.
+Sessão com cookie exigiria emissão, expiração e rotação — um sistema de
+autenticação de verdade, que é o que o ADR 021 bloqueia até o JWT/JWKS entrar.
+
+Formatação brasileira só na borda: `R$ 29.175.886,44` e `27/07/2026`, ambas por
+`packages/contracts/src/format.ts`. Tudo que é interpolado é escapado, e cor de
+tema é validada contra `#hex` antes de virar CSS.
+
+| Mutação | Testes que falham |
+|---|---|
+| Escape de HTML removido | 1 |
+| Audiência deixa de seguir a concessão | 1 |
+| Tema padrão inventado quando o tenant não tem | 1 |
+| Ordenação da fila removida | 1 |
+
+Duas linhas novas nos invariantes do `AGENTS.md`, apontando para o ADR 024:
+tema sem padrão, e visão como função da ação autorizada.
+
+**Pendências intocadas, por instrução:** I-2, M-1, M-3 e P-1. I-2 em especial
+segue valendo — ator `HUMAN` é autorizado por papel e alcança toda carteira do
+tenant —, e a UI não a exercita porque o único ator construído fora de teste
+continua sendo um agente com concessão por carteira.

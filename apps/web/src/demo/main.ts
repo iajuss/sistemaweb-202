@@ -48,8 +48,13 @@ async function main(): Promise<void> {
   const server = createHttpServer({
     plan: runtime.plan,
     authorization: runtime.authorization,
+    // Both schemes reach the same development identity, and the scheme is the
+    // only difference: a browser cannot be told to send `Bearer`, but it will
+    // send `Basic` once the page asks for a credential. Which directory
+    // validates it is fixed here and unreachable from a request (defect I-3),
+    // and outside development no principal is issued at all (ADR 021).
     authenticate: async (request) =>
-      request.headers.authorization?.startsWith("Bearer ")
+      /^(Bearer|Basic) /.test(request.headers.authorization ?? "")
         ? demoAgent()
         : null,
     titles: {
@@ -61,6 +66,10 @@ async function main(): Promise<void> {
         ),
     },
     debtors: walletDebtorReader(runtime.store),
+    debtorNames: {
+      findNameInWallet: (principal, operation, debtorId) =>
+        runtime.store.titles.findNameInWallet(principal, operation, debtorId),
+    },
     observations: debtorObservationReader(runtime.store),
     snapshots: {
       save: async (_principal, _operation, snapshot) =>
@@ -69,6 +78,11 @@ async function main(): Promise<void> {
         runtime.snapshots.get(dossierId) ?? null,
     },
     priorities: { listForWallet: async () => runtime.priorities },
+    // White label from the tenant row, not from a constant in this file.
+    theme: {
+      read: (principal, operation) =>
+        runtime.store.theme.read(principal, operation),
+    },
   });
 
   await new Promise<void>((resolve) =>
@@ -103,7 +117,17 @@ async function main(): Promise<void> {
     `  GET  ${base}/api/v1/dossies/${runtime.priorities[0]?.dossierId ?? "dossie-1"}/prompt?carteira=${DEMO.walletId}`,
   );
   console.log("");
+  console.log("");
+  console.log("Telas:");
+  console.log(`  ${base}/carteiras/${DEMO.walletId}/prioridades`);
+  console.log(
+    `  ${base}/carteiras/${DEMO.walletId}/dossies/${runtime.priorities[0]?.dossierId ?? "dossie-1"}`,
+  );
+  console.log("");
   console.log("Toda requisição precisa do cabeçalho: Authorization: Bearer demo");
+  console.log(
+    "No navegador, as telas pedem usuário e senha — qualquer valor serve nesta demonstração.",
+  );
   console.log("Ctrl+C encerra.");
 
   const shutdown = () => {

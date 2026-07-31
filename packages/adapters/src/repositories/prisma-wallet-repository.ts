@@ -250,6 +250,36 @@ export class PrismaWalletTitleRepository {
    * absent from this wallet has no answer: the wallet is what authorizes the
    * read, and holding a capability for it is not holding one for the tenant.
    */
+  /**
+   * The debtor's name, and deliberately nothing else.
+   *
+   * `findInWallet` decrypts the CPF and therefore demands `READ_DOSSIER`; the
+   * operational screen holds `READ_ACTIONABLE` and has no business decrypting
+   * anything. The CPF exists for the matcher and a screen is not the matcher,
+   * so this reads the name off the wallet's own titles and never touches the
+   * debtor row. A page cannot leak a document it was never handed.
+   */
+  public async findNameInWallet(
+    principal: VerifiedPrincipal,
+    operation: AuthorizedOperation,
+    debtorId: string,
+  ): Promise<string | null> {
+    assertFactoryIssued(this);
+    const context = assertActionableReadOperation(principal, operation);
+    return inTenantTransaction(this.#client, context.tenantId, async (tx) => {
+      const title = await tx.title.findFirst({
+        where: {
+          tenantId: context.tenantId,
+          walletId: operation.walletId,
+          debtorId,
+        },
+        select: { name: true, tenantId: true },
+      });
+      // RLS is the second barrier and never the only one (ADR 020).
+      return title && title.tenantId === context.tenantId ? title.name : null;
+    });
+  }
+
   public async findInWallet(
     principal: VerifiedPrincipal,
     operation: AuthorizedOperation,
@@ -534,11 +564,80 @@ export class PrismaDebtorObservationRepository {
 }
 Object.freeze(PrismaDebtorObservationRepository.prototype);
 
+export interface StoredTenantTheme {
+  readonly nomeDoProduto: string;
+  readonly corPrimaria: string;
+  readonly corSecundaria: string;
+  readonly marca: string;
+}
+
+function readThemeString(
+  theme: Readonly<Record<string, unknown>>,
+  key: string,
+): string | null {
+  const value = theme[key];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/**
+ * White label is a tenant fact, so it is read from the tenant row like any
+ * other. There is deliberately no default product name, colour or mark here:
+ * a fallback would be developer branding with extra steps, and the invariant
+ * is that none exists anywhere. A tenant with no theme configured reads
+ * `null`, and the delivery layer refuses to render rather than inventing one.
+ */
+export class PrismaTenantThemeRepository {
+  readonly #client: PrismaClient;
+
+  public constructor(authority: object, client: PrismaClient) {
+    assertAuthority(authority);
+    this.#client = client;
+    Object.freeze(this);
+    factoryIssued.add(this);
+  }
+
+  public async read(
+    principal: VerifiedPrincipal,
+    operation: AuthorizedOperation,
+  ): Promise<StoredTenantTheme | null> {
+    assertFactoryIssued(this);
+    const context = assertActionableReadOperation(principal, operation);
+    return inTenantTransaction(this.#client, context.tenantId, async (tx) => {
+      const row = await tx.tenant.findFirst({
+        where: { id: context.tenantId },
+        select: { id: true, theme: true },
+      });
+      // RLS is the second barrier and never the only one (ADR 020).
+      if (!row || row.id !== context.tenantId || row.theme === null) {
+        return null;
+      }
+
+      const theme = fromJsonObject(row.theme);
+      const nomeDoProduto = readThemeString(theme, "nome_do_produto");
+      const corPrimaria = readThemeString(theme, "cor_primaria");
+      const corSecundaria = readThemeString(theme, "cor_secundaria");
+      const marca = readThemeString(theme, "marca");
+      if (!nomeDoProduto || !corPrimaria || !corSecundaria || !marca) {
+        return null;
+      }
+
+      return Object.freeze({
+        nomeDoProduto,
+        corPrimaria,
+        corSecundaria,
+        marca,
+      });
+    });
+  }
+}
+Object.freeze(PrismaTenantThemeRepository.prototype);
+
 export interface PrismaWalletStoreBundle {
   readonly titles: PrismaWalletTitleRepository;
   readonly debtors: PrismaDebtorRepository;
   readonly imports: PrismaImportAuditRepository;
   readonly observations: PrismaDebtorObservationRepository;
+  readonly theme: PrismaTenantThemeRepository;
   disconnect(): Promise<void>;
 }
 
@@ -565,6 +664,7 @@ export function createPrismaWalletStore(
       walletStoreAuthority,
       client,
     ),
+    theme: new PrismaTenantThemeRepository(walletStoreAuthority, client),
     disconnect: () => client.$disconnect(),
   });
 }

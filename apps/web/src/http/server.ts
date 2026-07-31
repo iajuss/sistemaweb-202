@@ -75,6 +75,7 @@ export function createHttpServer(deps: RouterDependencies) {
           // The dossier is personal data about a named person. Nothing on this
           // surface may be cached by a proxy on the way back.
           "cache-control": "no-store",
+          ...result.headers,
         });
         response.end(payload);
       } catch (error) {

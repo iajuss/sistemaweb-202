@@ -144,7 +144,13 @@ export interface ProjectDossierForRoleInput {
   readonly papel: ViewAudience;
   readonly dossier: DossierSnapshot;
   readonly classificacao: PolicyClassification | null;
-  readonly devedor: { readonly nome: string; readonly cpf: string };
+  /**
+   * The CPF is optional because the operational screen never holds one: it
+   * reads the name from the wallet's own titles and decrypts nothing. Passing
+   * it, as the agent-facing path does, makes the check below exact instead of
+   * merely shaped.
+   */
+  readonly devedor: { readonly nome: string; readonly cpf?: string };
   readonly trilha?: readonly AuditTrailEntry[];
 }
 
@@ -166,18 +172,25 @@ function punctuate(cpf: string): string {
  *
  * It runs over the finished view because that is the thing that reaches a
  * screen, and it knows the debtor's actual CPF because the projection was
- * handed it — so the check is exact rather than a pattern that guesses. The
- * 4-9 fragment is included: it is derived in memory for the matcher and a
- * screen is not the matcher. Matching that specific six-digit string by
- * accident inside an opaque identifier is possible and vanishingly unlikely,
- * and the failure is a named refusal rather than a leak.
+ * handed it — when it was handed one. The 4-9 fragment is included: it is
+ * derived in memory for the matcher and a screen is not the matcher. Matching
+ * that specific six-digit string by accident inside an opaque identifier is
+ * possible and vanishingly unlikely, and the failure is a named refusal rather
+ * than a leak.
+ *
+ * A caller that holds no CPF — the operational screen — gets the pattern check
+ * alone. That is a narrower guarantee and a stronger position: the page cannot
+ * leak a document it was never given, which is structure rather than scanning.
  */
-function assertNoDocument(view: RoleDossierView, cpf: string): void {
+function assertNoDocument(view: RoleDossierView, cpf?: string): void {
   const rendered = JSON.stringify(view);
-  const digits = digitsOf(cpf);
-  const forms = [digits, punctuate(digits), digits.slice(3, 9)].filter(
-    (form) => form.length > 0,
-  );
+  const digits = cpf ? digitsOf(cpf) : "";
+  const forms =
+    digits.length === 0
+      ? []
+      : [digits, punctuate(digits), digits.slice(3, 9)].filter(
+          (form) => form.length > 0,
+        );
 
   if (
     forms.some((form) => rendered.includes(form)) ||

@@ -197,6 +197,7 @@ describe.each([
   ["PrismaWalletTitleRepository", () => prismaWalletStore().titles],
   ["PrismaDebtorRepository", () => prismaWalletStore().debtors],
   ["PrismaImportAuditRepository", () => prismaWalletStore().imports],
+  ["PrismaTenantThemeRepository", () => prismaWalletStore().theme],
   [
     "PrismaDebtorObservationRepository",
     () => prismaWalletStore().observations,

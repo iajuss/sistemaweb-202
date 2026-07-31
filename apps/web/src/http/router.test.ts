@@ -19,7 +19,18 @@ import type {
   WalletAuthorizationRepository,
 } from "@panella/application";
 
+import { dossierFrom } from "../../../../fixtures/policy/dossiers.js";
+
 import { createRouter, type HttpRequest } from "./router.js";
+import type { TenantTheme } from "./views.js";
+
+/** White label: every visible name, colour and mark belongs to the tenant. */
+const THEME: TenantTheme = {
+  nomeDoProduto: "Triagem de Cobrança",
+  corPrimaria: "#1F4E79",
+  corSecundaria: "#F2F5F8",
+  marca: "Cliente Demonstração",
+};
 
 const PLAN = sourcePlanForUfs(["SP"]);
 const DEBTOR = { debtorId: "debtor-a", name: "JOSE SILVA", cpf: "52998224725" };
@@ -108,6 +119,8 @@ function router(
     readonly repository?: IdentityActorRepository;
     readonly actions?: WalletGrant["actions"];
     readonly stored?: readonly DossierSnapshot[];
+    readonly theme?: TenantTheme | null;
+    readonly debtorName?: string;
   } = {},
 ) {
   const authorization = new WalletFixture(overrides.actions);
@@ -130,7 +143,19 @@ function router(
     },
     debtors: {
       findInWallet: async (_principal, _operation, debtorId) =>
-        debtorId === DEBTOR.debtorId ? DEBTOR : null,
+        debtorId === DEBTOR.debtorId
+          ? { ...DEBTOR, name: overrides.debtorName ?? DEBTOR.name }
+          : null,
+    },
+    debtorNames: {
+      findNameInWallet: async (_principal, _operation, debtorId) =>
+        debtorId === DEBTOR.debtorId
+          ? overrides.debtorName ?? DEBTOR.name
+          : null,
+    },
+    theme: {
+      read: async () =>
+        overrides.theme === undefined ? THEME : overrides.theme,
     },
     observations: { listForDebtor: async () => [] },
     snapshots: {
@@ -347,5 +372,146 @@ describe("GET prompt", () => {
     expect(JSON.stringify(response.body)).toContain(
       "VINCULO_NAO_CONFIRMADO_MARCADO_COMO_FATO",
     );
+  });
+});
+
+/**
+ * The delivery layer of Task 12: two server-rendered pages, no framework and
+ * no new dependency, over the **same** authorization path the API uses. The
+ * view a caller gets is derived from the grant the repository returned — never
+ * from anything the request said about itself.
+ */
+const RICO: DossierSnapshot = dossierFrom({
+  carteira: { cents: 2_917_588_644n, titulos: 3 },
+  dadosAbertos: { status: "ENCONTRADO", link: "CONFIRMADO" },
+  lista: { status: "ENCONTRADO", link: "PROVAVEL" },
+});
+
+describe("UI — página de prioridades da carteira", () => {
+  const path = "/carteiras/wallet-a/prioridades";
+
+  it("renders the queue as HTML", async () => {
+    const response = await router()(request({ path }));
+
+    expect(response.status).toBe(200);
+    expect(response.contentType).toBe("text/html; charset=utf-8");
+    const html = response.body as string;
+    expect(html).toContain("COBRANCA_PADRAO");
+    expect(html).toContain("TIT-002");
+    // Ordered queue, priority first: the standard-collection entry outranks
+    // the monitoring one whatever order the reader returned them in.
+    expect(html.indexOf("TIT-002")).toBeLessThan(html.indexOf("TIT-001"));
+  });
+
+  it("takes its name, mark and colours from the tenant", async () => {
+    const html = (await router()(request({ path }))).body as string;
+
+    expect(html).toContain("Triagem de Cobrança");
+    expect(html).toContain("Cliente Demonstração");
+    expect(html).toContain("#1F4E79");
+  });
+
+  it("carries no branding of whoever built it", async () => {
+    const html = (await router()(request({ path }))).body as string;
+
+    // The workspace scope is the developer's name. If it ever reaches a page —
+    // footer, meta tag, title — this fails.
+    expect(html.toLowerCase()).not.toContain("panella");
+  });
+
+  it("refuses to invent a theme when the tenant configured none", async () => {
+    // A default product name is developer branding with extra steps.
+    const response = await router({ theme: null })(request({ path }));
+
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(response.body)).toContain("TEMA_NAO_CONFIGURADO");
+  });
+
+  it("asks the browser for a credential instead of just refusing", async () => {
+    const response = await router()(
+      request({ path, headers: {} }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers?.["www-authenticate"]).toContain("Basic");
+  });
+
+  it("refuses a wallet the caller holds no grant on", async () => {
+    const response = await router()(request({ path: "/carteiras/wallet-b/prioridades" }));
+
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("UI — página de dossiê", () => {
+  const path = "/carteiras/wallet-a/dossies/dossier-1";
+
+  function uiRouter(actions?: WalletGrant["actions"], debtorName?: string) {
+    return router({ actions, stored: [RICO], debtorName });
+  }
+
+  it("shows the named signals and the explanation", async () => {
+    const html = (await uiRouter()(request({ path }))).body as string;
+
+    expect(html).toContain("divida_ativa_confirmada");
+    expect(html).toContain("tres_ou_mais_titulos_em_aberto");
+    // The right to review an automated decision is about this text.
+    expect(html).toContain("A pontuação ordena esforço de cobrança");
+  });
+
+  it("renders money and dates the way a Brazilian reads them", async () => {
+    const html = (await uiRouter()(request({ path }))).body as string;
+
+    expect(html).toContain("R$ 29.175.886,44");
+    expect(html).toContain("25/07/2026");
+    expect(html).not.toContain("29175886.44");
+  });
+
+  it("never shows the CPF", async () => {
+    const html = (await uiRouter()(request({ path }))).body as string;
+
+    expect(html).not.toContain("52998224725");
+    expect(html).not.toContain("982247");
+  });
+
+  it("withholds a value whose link is not confirmed", async () => {
+    const html = (await uiRouter()(request({ path }))).body as string;
+
+    expect(html).toContain("valor retido");
+  });
+
+  it("redacts the match evidence for a caller holding only READ_ACTIONABLE", async () => {
+    // The audience follows the grant. An operator sees how many rules matched
+    // and not which, because deciding an approach is not auditing a match.
+    const html = (await uiRouter(["READ_ACTIONABLE"])(request({ path })))
+      .body as string;
+
+    expect(html).not.toContain("todos_os_tokens_presentes");
+    expect(html).toContain("OPERADOR_COBRANCA");
+  });
+
+  it("shows the match evidence to a caller holding READ_DOSSIER", async () => {
+    const html = (await uiRouter(["READ_ACTIONABLE", "READ_DOSSIER"])(
+      request({ path }),
+    )).body as string;
+
+    expect(html).toContain("todos_os_tokens_presentes");
+    expect(html).toContain("ANALISTA_DOSSIE");
+  });
+
+  it("escapes what came from the data instead of trusting it", async () => {
+    const html = (await uiRouter(undefined, "JOSE <script>alert(1)</script>"))
+      .call(null, request({ path }));
+
+    expect(((await html).body as string)).not.toContain("<script>alert(1)</script>");
+    expect(((await html).body as string)).toContain("&lt;script&gt;");
+  });
+
+  it("answers 404 for a dossier nobody stored", async () => {
+    const response = await uiRouter()(
+      request({ path: "/carteiras/wallet-a/dossies/dossier-9" }),
+    );
+
+    expect(response.status).toBe(404);
   });
 });

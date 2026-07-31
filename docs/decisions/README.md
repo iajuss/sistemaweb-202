@@ -32,6 +32,7 @@ consequências mora aqui.
 | [021](021-identidade-verificada-e-proibicao-de-producao-sem-jwt-jwks.md) | Identidade só entra por principal verificada; produção espera JWT/JWKS |
 | [022](022-leitor-xlsx-sem-dependencia-externa.md) | Leitor XLSX próprio, sem dependência externa |
 | [023](023-precisao-excedente-em-valor-publicado.md) | Precisão excedente: carteira quarentena, fonte publicada arredonda com rastro |
+| [024](024-ui-servida-pelo-mesmo-roteador-sem-framework.md) | UI no mesmo roteador, sem framework; audiência derivada da concessão |
 
 ## Escrevendo um ADR novo
 

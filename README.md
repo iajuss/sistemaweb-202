@@ -23,7 +23,8 @@ camada de entrega.
 
 ## Subindo tudo do zero
 
-A sequência abaixo vai de um clone limpo até os três endpoints respondendo.
+A sequência abaixo vai de um clone limpo até os três endpoints e as duas telas
+respondendo.
 Cada passo é um comando; nenhum deles pede confirmação.
 
 ### 1. Instalar as dependências
@@ -105,8 +106,8 @@ Prioridades da carteira:
   dossie-3  MONITORAMENTO         pontuação 0.00  DEMO-020  ANA LUCIA FERREIRA
 ```
 
-O processo fica no ar até `Ctrl+C`. Rode os passos 6, 7 e 8 num segundo
-terminal.
+O processo fica no ar até `Ctrl+C`. Rode os passos 6 a 9 num segundo terminal,
+ou abra as telas do passo 9 no navegador.
 
 > **Semear e servir moram no mesmo processo de propósito.** O cofre de chaves
 > AEAD é em memória (pendência F-5), então o processo que cifrou um CPF é o
@@ -168,9 +169,11 @@ o dossiê é um snapshot imutável de um instante, nunca um registro editado.
 
 ### 7. Endpoint de prioridades da carteira
 
-**Não abre no navegador.** Toda rota exige o cabeçalho `Authorization`, e uma
-barra de endereço não manda cabeçalho nenhum: o navegador recebe 401
-`NAO_AUTENTICADO`. Use a linha de comando.
+**Esta rota não abre no navegador.** Toda rota exige o cabeçalho
+`Authorization`, e uma barra de endereço não manda cabeçalho nenhum: o
+navegador recebe 401 `NAO_AUTENTICADO` e nada mais, porque a resposta da API é
+deliberadamente pobre em informação. Use a linha de comando aqui; a fila para
+ler numa tela é o passo 9, e lá a resposta 401 pede a credencial ao navegador.
 
 ```bash
 curl -s http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/prioridades -H "Authorization: Bearer demo"
@@ -233,7 +236,46 @@ do sinal.
 Os três endpoints respondem `cache-control: no-store` — o dossiê é dado pessoal
 de pessoa identificada. Sem o cabeçalho `Authorization` a resposta é 401.
 
-### 9. Derrubar
+### 9. As duas telas
+
+Abra no navegador:
+
+```
+http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
+```
+
+O navegador pede usuário e senha — **qualquer valor serve nesta
+demonstração**, que emite identidade de desenvolvimento e não autentica
+ninguém de verdade (ADR 021, pendência P-1). A tela pede a credencial porque a
+resposta 401 manda `WWW-Authenticate: Basic`; é o mesmo cabeçalho
+`Authorization` que a API usa, e a autorização é a mesma dos passos 6 a 8.
+
+Da fila, clique num título para chegar ao dossiê:
+
+```
+http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1
+```
+
+**Resposta correta:** a fila mostra os três dossiês ordenados por prioridade, e
+a página do dossiê mostra os campos com envelope, os sinais nomeados com peso e
+fonte, e a explicação por extenso. O que vale reparar:
+
+- **Dinheiro e data em português.** `R$ 29.175.886,44` e `27/07/2026`. A
+  formatação acontece só na borda de apresentação; o domínio segue com centavos
+  inteiros e ISO-8601.
+- **Valor retido.** `pgfn_lista_valor_total` aparece marcado como retido: alguém
+  publicou aquele valor, mas o resolvedor não estabeleceu que é desta pessoa.
+- **Nenhum CPF**, inteiro ou mascarado. A tela lê o nome dos títulos da carteira
+  e não decifra documento nenhum.
+- **A visão segue a concessão.** Quem tem `READ_DOSSIER` vê quais regras de
+  correspondência casaram; quem tem só `READ_ACTIONABLE` vê quantas casaram, e
+  não quais. O papel não é escolhido pela requisição.
+- **White label.** Nome do produto, marca e cores vêm da linha do tenant no
+  banco. Não há valor padrão: tenant sem tema configurado devolve 500
+  `TEMA_NAO_CONFIGURADO`, porque um padrão seria a marca de quem desenvolveu com
+  outro nome.
+
+### 10. Derrubar
 
 ```bash
 pnpm compose:down

@@ -105,6 +105,41 @@ describe("no role ever receives the document", () => {
   });
 });
 
+describe("a caller that never held the document", () => {
+  /**
+   * The operational screen reads the debtor's name from the wallet's own
+   * titles and never decrypts a CPF — the CPF exists for the matcher, and a
+   * screen is not the matcher. Structure beats scanning: the page cannot leak
+   * what it was never handed. The pattern check still runs, for the document
+   * that leaked into a free-text column upstream.
+   */
+  it("projects without a CPF at all", () => {
+    const dossier = dossierFrom(CONFIRMADO);
+    const view = projectDossierForRole({
+      papel: "OPERADOR_COBRANCA",
+      dossier,
+      classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+      devedor: { nome: DEVEDOR.nome },
+    });
+
+    expect(view.devedor?.nome).toBe(DEVEDOR.nome);
+    expect(render(view)).not.toContain(DEVEDOR.cpf);
+  });
+
+  it("still refuses a punctuated document that leaked into a free-text field", () => {
+    const dossier = dossierFrom(CONFIRMADO);
+
+    expect(() =>
+      projectDossierForRole({
+        papel: "OPERADOR_COBRANCA",
+        dossier,
+        classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+        devedor: { nome: `JOSE SILVA ${CPF_PONTUADO}` },
+      }),
+    ).toThrow("DOCUMENTO_EM_VISAO_DE_PAPEL");
+  });
+});
+
 describe("operador_cobranca", () => {
   it("receives no match evidence, only how many rules matched", () => {
     const operador = view("OPERADOR_COBRANCA");

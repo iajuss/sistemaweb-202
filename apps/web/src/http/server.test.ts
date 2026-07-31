@@ -108,6 +108,15 @@ beforeAll(async () => {
         },
       ],
     },
+    debtorNames: { findNameInWallet: async () => "JOSE SILVA" },
+    theme: {
+      read: async () => ({
+        nomeDoProduto: "Triagem de Cobrança",
+        corPrimaria: "#1F4E79",
+        corSecundaria: "#F2F5F8",
+        marca: "Cliente Demonstração",
+      }),
+    },
     now: () => new Date("2026-07-31T12:00:00.000Z"),
     newDossierId: () => "dossier-1",
   });
