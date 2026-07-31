@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dossie_triagem
+      POSTGRES_USER: dossie_owner
+      POSTGRES_PASSWORD: dossie_owner_local_only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dossie_owner -d dossie_triagem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Loopback only, and a non-default port so it cannot collide with a
+    # PostgreSQL already installed on the developer's machine. The integration
+    # suite runs on the host and needs a real connection: the alternative is
+    # shelling every assertion through `psql`, which tests SQL rather than the
+    # repository that production will actually use.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_local_only
+    ports:
+      - "8080:8080"
+
+  workspace-dependencies:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile"
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+
+  migrate:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm exec prisma migrate deploy"
+    environment:
+      DATABASE_URL: postgresql://dossie_owner:dossie_owner_local_only@postgres:5432/dossie_triagem
+    depends_on:
+      postgres:
+        condition: service_healthy
+      workspace-dependencies:
+        condition: service_completed_successfully
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+
+  web:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm dev"
+    environment:
+      DATABASE_URL: postgresql://dossie_app:dossie_app_local_only@postgres:5432/dossie_triagem
+      KEYCLOAK_ISSUER_URL: http://keycloak:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+      workspace-dependencies:
+        condition: service_completed_successfully
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+    ports:
+      - "3000:3000"
+
+  worker:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm worker"
+    environment:
+      DATABASE_URL: postgresql://dossie_app:dossie_app_local_only@postgres:5432/dossie_triagem
+      KEYCLOAK_ISSUER_URL: http://keycloak:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+      workspace-dependencies:
+        condition: service_completed_successfully
+    volumes:
+      - .:/workspace
+      - workspace-node-modules:/workspace/node_modules
+
+volumes:
+  postgres-data:
+  workspace-node-modules:

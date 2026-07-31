@@ -19,6 +19,9 @@ de tenant. A estratégia de autenticação, controle de acesso e mecanismo de
 isolamento no banco será fechada no design de deploy, pois depende do provedor e
 do requisito contratual de cada cliente.
 
+O mecanismo foi fechado como defesa em profundidade: repositórios exigem
+`TenantContext` e o PostgreSQL aplica RLS em produção. Ver ADR 020.
+
 ## Alternativas descartadas
 
 * **Instância dedicada desde a v1:** aumenta operação e custo sem requisito

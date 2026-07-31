@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ActorKind {
+  HUMAN
+  AGENT
+  SYSTEM
+}
+
+enum HumanRole {
+  ADMIN_TENANT
+  ANALISTA_DOSSIE
+  OPERADOR_COBRANCA
+  ENCARREGADO_LGPD
+}
+
+enum SourceStatus {
+  ENCONTRADO
+  NAO_ENCONTRADO
+  NAO_CONSULTADO
+  ERRO_NA_FONTE
+}
+
+model Tenant {
+  id         String   @id
+  theme      Json?
+  createdAt  DateTime @default(now())
+  wallets    Wallet[]
+  debtors    Debtor[]
+  actors     ActorIdentity[]
+  grants     AgentWalletGrant[]
+  observations Observation[]
+  imports    WalletImport[]
+}
+
+model Wallet {
+  id          String   @id
+  tenantId    String
+  name        String
+  importedAt  DateTime
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  titles      Title[]
+  grants      AgentWalletGrant[]
+  imports     WalletImport[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId])
+}
+
+model Debtor {
+  id               String   @id
+  tenantId         String
+  cpfCiphertext    Bytes
+  cpfIv            Bytes
+  cpfAuthTag       Bytes
+  cpfHmac          String
+  hmacKeyReference String
+  keyReference     String
+  createdAt        DateTime @default(now())
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  titles           Title[]
+  observations     Observation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, cpfHmac])
+  @@index([tenantId])
+}
+
+model Title {
+  id          String   @id
+  tenantId    String
+  walletId    String
+  debtorId    String
+  externalId  String
+  // Identity resolution starts from name + CPF, so the name the client
+  // declared for this title is part of the imported record (Task 4).
+  name        String
+  amountCents BigInt
+  dueDate     DateTime
+  wallet      Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "Title_wallet_fkey")
+  debtor      Debtor   @relation(fields: [tenantId, debtorId], references: [tenantId, id], map: "Title_debtor_fkey")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, walletId, externalId])
+  @@index([tenantId, debtorId])
+}
+
+model ActorIdentity {
+  id        String      @id
+  tenantId  String
+  provider  String
+  subject   String
+  kind      ActorKind
+  roles     HumanRole[]
+  active    Boolean     @default(true)
+  tenant    Tenant      @relation(fields: [tenantId], references: [id])
+  grants    AgentWalletGrant[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, provider, subject])
+  @@index([tenantId])
+}
+
+model AgentWalletGrant {
+  id        String    @id
+  tenantId  String
+  actorId   String
+  walletId  String
+  actions   String[]
+  revokedAt DateTime?
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  actor     ActorIdentity @relation(fields: [tenantId, actorId], references: [tenantId, id], map: "AgentWalletGrant_actor_fkey")
+  wallet    Wallet    @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "AgentWalletGrant_wallet_fkey")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, actorId, walletId])
+  @@index([tenantId, walletId])
+}
+
+model Observation {
+  id          String       @id
+  tenantId    String
+  debtorId    String
+  source      String
+  // The slice the query covered. A column, not a payload field: coverage is
+  // what decides NAO_CONSULTADO against NAO_ENCONTRADO, and it has to be
+  // reachable by index rather than by reading every JSON blob.
+  sliceId     String
+  status      SourceStatus
+  queryParams Json
+  payload     Json?
+  collectedAt DateTime
+  // Publication reference, where the source has one. Distinct from
+  // `collectedAt`, which is when this fact was read.
+  referenceDate DateTime?
+  tenant      Tenant       @relation(fields: [tenantId], references: [id])
+  debtor      Debtor       @relation(fields: [tenantId, debtorId], references: [tenantId, id], map: "Observation_debtor_fkey")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, debtorId, source])
+  @@index([tenantId, debtorId, source, sliceId])
+}
+
+/**
+ * Import audit. Append-only is enforced in the database, not by convention:
+ * the application role holds no UPDATE or DELETE on this table.
+ */
+model WalletImport {
+  id                String   @id
+  tenantId          String
+  walletId          String
+  actorId           String
+  fileHash          String
+  importedAt        DateTime
+  acceptedRows      Int
+  quarantinedRows   Int
+  quarantineReasons Json
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  wallet            Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "WalletImport_wallet_fkey")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, walletId])
+}

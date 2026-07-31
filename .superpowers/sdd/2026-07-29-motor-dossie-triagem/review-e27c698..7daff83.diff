@@ -1,0 +1,4182 @@
+﻿# Review package
+# Base: e27c698
+# Head: 7daff83
+
+## Commits
+7daff83 fix: verify production RLS boundaries
+a10a42d feat: add tenant identity and key boundaries
+71185ee chore: checkpoint task 3 work in progress
+e77a5d3 docs: harden task 3 tenant boundaries
+
+## Stat
+ .agents/plans/2026-07-29-motor-dossie-triagem.md   |  30 +-
+ .../2026-07-29-motor-dossie-triagem/progress.md    |   1 +
+ .../task-3-report.md                               |  31 ++
+ AGENTS.md                                          |   4 +
+ docker-compose.yml                                 |  30 +-
+ .../postgres/init/001-create-application-role.sql  |  10 +
+ .../005-multitenancy-logica-e-white-label.md       |   3 +
+ .../020-isolamento-tenant-por-repositorio-e-rls.md |  45 +++
+ eslint.config.mjs                                  |  48 +++
+ package.json                                       |   2 +
+ packages/adapters/package.json                     |   6 +
+ packages/adapters/src/keycloak.test.ts             |  67 ++++
+ packages/adapters/src/keycloak.ts                  |  61 ++++
+ packages/adapters/src/kms.test.ts                  | 100 ++++++
+ packages/adapters/src/kms.ts                       | 296 +++++++++++++++++
+ .../repositories/postgres-rls.integration.test.ts  | 203 ++++++++++++
+ .../prisma-observation-repository.test.ts          | 136 ++++++++
+ .../repositories/prisma-observation-repository.ts  | 153 +++++++++
+ .../src/repositories/tenant-repository.test.ts     | 149 +++++++++
+ .../adapters/src/repositories/tenant-repository.ts |  87 +++++
+ packages/application/package.json                  |   4 +
+ packages/application/src/authorize-actor.test.ts   | 323 ++++++++++++++++++
+ packages/application/src/authorize-actor.ts        | 147 +++++++++
+ packages/domain/src/actor.ts                       |  82 ++++-
+ packages/domain/src/authorization.test.ts          | 117 +++++++
+ packages/domain/src/authorization.ts               | 106 ++++++
+ packages/domain/src/identity.ts                    |  10 +
+ packages/domain/src/index.ts                       |  29 +-
+ pnpm-lock.yaml                                     | 366 +++++++++++++++++++--
+ pnpm-workspace.yaml                                |   3 +
+ .../migration.sql                                  | 138 ++++++++
+ prisma/migrations/migration_lock.toml              |   1 +
+ prisma/schema.prisma                               | 135 ++++++++
+ 33 files changed, 2867 insertions(+), 56 deletions(-)
+
+## Diff
+diff --git a/.agents/plans/2026-07-29-motor-dossie-triagem.md b/.agents/plans/2026-07-29-motor-dossie-triagem.md
+index 9bf019b..2af2f46 100644
+--- a/.agents/plans/2026-07-29-motor-dossie-triagem.md
++++ b/.agents/plans/2026-07-29-motor-dossie-triagem.md
+@@ -160,57 +160,71 @@ git add packages/domain packages/contracts
+ git commit -m "feat: add versioned domain contracts"
+ ```
+ 
+ ### Task 3: Tenant, identity, encryption and authorization boundaries
+ 
+ **Files:**
+ - Create: `prisma/schema.prisma`, `packages/domain/src/authorization.ts`, `packages/domain/src/identity.ts`
+ - Create: `packages/application/src/authorize-actor.ts`, `packages/adapters/src/kms.ts`, `packages/adapters/src/keycloak.ts`
+ - Test: `packages/domain/src/authorization.test.ts`, `packages/application/src/authorize-actor.test.ts`, `packages/adapters/src/kms.test.ts`
+ 
+-**Interfaces:** Consumes `Actor`; produces `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey` and `IdentityRef { provider, subject }`.
++**Interfaces:** Consumes `Actor`; produces `TenantContext { tenantId: string; actor: Actor }`, `TenantScopedRepository<T>` whose every read/write receives `TenantContext`, `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey`, `readDebtor` and `IdentityRef { provider, subject }`. `encryptCpf` and `decryptCpf` receive `{ tenantId, debtorId }` as AEAD associated-data inputs; `readDebtor` returns `{ readState: "ELIMINADO_A_PEDIDO_DO_TITULAR"; audit: AuditSkeleton }` after destroyed-key lookup.
+ 
+ **Acceptance criteria from AGENTS.md:**
+-- Tenant identity and authorization are checked at runtime at every data-access boundary; a TypeScript `tenantId` type alone is never authorization.
+-- A test must prove an observation created for tenant A is never readable by tenant B, and must fail if the runtime tenant-scope check is removed.
+-- CPF remains ciphertext plus HMAC index; no mask fragment, plaintext CPF or decrypted value crosses persistence, logs, URL, query string or telemetry.
+-- Debtor-key destruction is tenant-scoped and returns only the named internal `KEY_DESTROYED` condition; no ciphertext is exposed.
++- Every tenant-scoped read and write uses a repository that requires runtime `TenantContext`; raw Prisma is forbidden outside that layer by an architectural test or lint rule. PostgreSQL RLS is enabled in production with transaction-scoped `SET LOCAL app.tenant_id`, never an application bypass.
++- The report must show RED output where an observation written for tenant A is readable by tenant B before the repository guard exists; the final test must fail if that guard is removed.
++- CPF is encrypted with AEAD using `tenant_id` and `debtor_id` as associated data; moving ciphertext to another debtor or tenant must fail to decrypt.
++- CPF lookup uses HMAC with a vault-held secret separate from the encryption key; no plain hash is allowed, and the ADR records that HMAC-key rotation requires reindexing.
++- Destroyed debtor key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR`, with audit skeleton available and no decrypt error or ciphertext exposed.
++- Runtime authorization runs on every human, agent and system-worker access. Backend lookup accepts only a CPF already present in an authorized imported wallet, and a test fails if this check is removed.
+ 
+ - [ ] **Step 1: Write failing tenant and actor tests**
+ 
+ ```ts
+ it("denies an agent a wallet grant from another tenant", () => {
+   expect(authorize(agentA, walletB, "READ_DOSSIER")).toEqual({ allowed: false });
+ });
+ 
+ it("destroys only the selected debtor key", async () => {
+   await destroyDebtorKey("debtor-a");
+-  await expect(decryptCpf(recordA)).rejects.toThrow("KEY_DESTROYED");
++  await expect(readDebtor(recordA)).resolves.toMatchObject({
++    readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
++    audit: expect.any(Object),
++  });
+   await expect(decryptCpf(recordB)).resolves.toBe("valid");
+ });
++
++it("cannot read a tenant A observation through tenant B context", async () => {
++  await repositoryFor(tenantA).save(observationForTenantA);
++  await expect(repositoryFor(tenantB).find(observationForTenantA.id)).resolves.toBeNull();
++});
++
++it("rejects ciphertext copied to another tenant or debtor", async () => {
++  await expect(decryptCpf({ ...recordA, tenantId: tenantB.id })).rejects.toThrow("AEAD_AUTH_FAILED");
++});
+ ```
+ 
+ - [ ] **Step 2: Run them before persistence exists**
+ 
+ Run: `pnpm --filter @panella/domain test authorization && pnpm --filter @panella/adapters test kms`
+ 
+ Expected: failures because policy and key interfaces do not exist.
+ 
+ - [ ] **Step 3: Implement schema and ports**
+ 
+-Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables. Store CPF ciphertext, HMAC index and `key_reference`; do not add a persisted mask fragment. Implement domain authorization independently of Keycloak. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for tests and AWS KMS adapter configuration for production.
++Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables with production RLS policies. Expose only tenant-context repositories; use transaction-local tenant session state and prohibit raw Prisma outside repositories. Store AEAD CPF ciphertext, HMAC index and `key_reference`; HMAC and cipher use separate vault keys and no persisted mask fragment exists. Implement domain authorization independently of Keycloak for human, agent and system worker. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for offline tests and AWS KMS configuration for production.
+ 
+ - [ ] **Step 4: Verify tenant isolation**
+ 
+ Run: `pnpm exec prisma migrate dev && pnpm test && pnpm typecheck`
+ 
+-Expected: tenant-crossing read is denied; destroyed key returns named `KEY_DESTROYED` internally without exposing ciphertext.
++Expected: RED evidence proves the original A-to-B leak before the guard; final tenant-crossing read is denied by repository and RLS integration coverage, copied ciphertext fails AEAD authentication, HMAC key material is separate, and destroyed key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR` without exposing ciphertext.
+ 
+ - [ ] **Step 5: Commit**
+ 
+ ```bash
+ git add prisma packages/domain packages/application packages/adapters
+ git commit -m "feat: add tenant identity and key boundaries"
+ ```
+ 
+ ### Task 4: Carteira, importação plugável e quarentena
+ 
+diff --git a/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md
+index 0adc896..0c79d1b 100644
+--- a/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md
++++ b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md
+@@ -3,20 +3,21 @@
+ Execution started from branch `codex/dossie-triagem` at commit `f9575b8`.
+ 
+ Task 2: WIP — implementation commits 587d70f and 9eb1063. First review requested changes: monetary contract accepted numbers; classification lacked required cobertura and confianca_global; compatibility checking was permissive. The corrective commit 9eb1063 states those three points are addressed, but the correction has not been re-reviewed; therefore the Task 2 review remains incomplete. Docker Compose runtime verification is still pending because Docker is unavailable in this environment.
+ 
+ Task 1: fix round 1/5 (1 addressed, 0 open — Compose dependency install race; commits d744a67..c436178)
+ Task 1: complete (commits f9575b8..c436178, review clean)
+ 
+ Execution modes for remaining tasks (user-directed; preserve across session restarts):
+ Task 2: rounds 2-5 exposed the same root cause: acceptance criteria were absent from the brief and TypeScript types were treated as trust boundaries without executable runtime enforcement. The monetary invariant is now enforced by factories, Zod parsing, lint and red/green tests; Task 3 brief explicitly requires a runtime tenant-isolation leak test.
+ Task 2: complete (commits 587d70f..0e7ef2d, review clean; final review base 1db4f7e, informational plan observation recorded).
++Task 3: WIP checkpoint — repository guard with required TenantContext is complete; RED evidence of A-to-B read/write leakage is preserved in `task-3-report.md`. Remaining: complete and verify AEAD boundary with tenant/debtor associated data, separate-secret HMAC boundary and rotation/reindexing handling, and RLS wrapper/policy. Docker/PostgreSQL absence leaves real RLS validation pending verification, never a reduced policy.
+ - Task 2: fix round 2/5 (2 addressed, 1 open — coverage now forces `DADOS_INSUFICIENTES`; invalid candidate is rejected after major change; `Money.fromCents` lacks a runtime bigint guard; commits 9eb1063..65b62cb).
+ - Task 3: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+ - Task 4: inline — no separate reviewer; retain TDD and verification.
+ - Task 5: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+ - Task 6: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+ - Task 7: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+ - Task 8: inline — no separate reviewer; retain TDD and verification.
+ - Task 9: inline — no separate reviewer; retain TDD and verification.
+ - Task 10: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
+ - Task 11: inline — no separate reviewer; retain TDD and verification.
+diff --git a/.superpowers/sdd/2026-07-29-motor-dossie-triagem/task-3-report.md b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/task-3-report.md
+new file mode 100644
+index 0000000..75c4be9
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/task-3-report.md
+@@ -0,0 +1,31 @@
++# Task 3 report — WIP checkpoint
++
++## RED evidence: tenant isolation
++
++Before the repository guard existed, the isolation test failed with:
++
++```text
++expected { id: 'observation-a', tenantId: 'tenant-a', ... } to be null
++```
++
++The same unguarded path also allowed a write using tenant B context for a
++tenant A record. This RED was observed before the guard implementation; it is
++preserved here because tenant A data must never be readable or writable through
++tenant B context.
++
++## Current state
++
++The tenant-context repository guard is implemented in the WIP worktree.
++Remaining work is to complete and verify the AEAD cipher boundary with
++`tenant_id` plus `debtor_id` associated data, the separate-secret HMAC boundary
++and its rotation/reindexing handling, and PostgreSQL RLS policy/wrapper
++validation.
++
++Docker/PostgreSQL is unavailable on this host. Real RLS validation is therefore
++recorded as pending verification, never as a reduced policy: production RLS,
++transaction-local `SET LOCAL app.tenant_id`, and no application `BYPASSRLS`
++remain required by ADR 020.
++
++## Pause
++
++Work stopped at user request before final verification, review or completion.
+diff --git a/AGENTS.md b/AGENTS.md
+index 52ddd65..c493616 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -147,13 +147,17 @@ Quando um ADR fixar uma decisão nova que valha para sempre, acrescente **uma
+ linha** aqui e aponte para o ADR. Este arquivo é a lista de invariantes, não o
+ design doc — se passar de ~150 linhas, ele para de ser lido.
+ 
+ Todo invariante precisa de imposição mecânica — teste ou lint — e não apenas de
+ prosa; para dinheiro, `number` é proibido em toda fronteira e `string` só entra
+ pela gramática ancorada do contrato. Ver ADR 019.
+ 
+ Tipo não é imposição em runtime: toda fronteira de confiança precisa de guarda
+ executável e de teste que falhe se ela for removida. Ver ADR 019.
+ 
++Toda persistência tenant-scoped passa por repositório com `TenantContext`; em
++produção, RLS do Postgres é segunda barreira e nunca há bypass de aplicação.
++Ver ADR 020.
++
+ ## Commits
+ 
+ Sempre pergunte se pode dar commits das mudanças realizadas.
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 978671d..f2c9da2 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,72 +1,92 @@
+ services:
+   postgres:
+     image: postgres:16-alpine
+     environment:
+       POSTGRES_DB: dossie_triagem
+-      POSTGRES_USER: dossie
+-      POSTGRES_PASSWORD: dossie_local_only
++      POSTGRES_USER: dossie_owner
++      POSTGRES_PASSWORD: dossie_owner_local_only
+     healthcheck:
+-      test: ["CMD-SHELL", "pg_isready -U dossie -d dossie_triagem"]
++      test: ["CMD-SHELL", "pg_isready -U dossie_owner -d dossie_triagem"]
+       interval: 5s
+       timeout: 5s
+       retries: 10
+     volumes:
+       - postgres-data:/var/lib/postgresql/data
++      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+ 
+   keycloak:
+     image: quay.io/keycloak/keycloak:26.2
+     command: start-dev
+     environment:
+       KC_BOOTSTRAP_ADMIN_USERNAME: admin
+       KC_BOOTSTRAP_ADMIN_PASSWORD: admin_local_only
+     ports:
+       - "8080:8080"
+ 
+   workspace-dependencies:
+     image: node:22-bookworm-slim
+     working_dir: /workspace
+     command: sh -c "corepack enable && pnpm install --frozen-lockfile"
+     volumes:
+       - .:/workspace
+       - workspace-node-modules:/workspace/node_modules
+ 
++  migrate:
++    image: node:22-bookworm-slim
++    working_dir: /workspace
++    command: sh -c "corepack enable && pnpm exec prisma migrate deploy"
++    environment:
++      DATABASE_URL: postgresql://dossie_owner:dossie_owner_local_only@postgres:5432/dossie_triagem
++    depends_on:
++      postgres:
++        condition: service_healthy
++      workspace-dependencies:
++        condition: service_completed_successfully
++    volumes:
++      - .:/workspace
++      - workspace-node-modules:/workspace/node_modules
++
+   web:
+     image: node:22-bookworm-slim
+     working_dir: /workspace
+     command: sh -c "corepack enable && pnpm dev"
+     environment:
+-      DATABASE_URL: postgresql://dossie:dossie_local_only@postgres:5432/dossie_triagem
++      DATABASE_URL: postgresql://dossie_app:dossie_app_local_only@postgres:5432/dossie_triagem
+       KEYCLOAK_ISSUER_URL: http://keycloak:8080
+     depends_on:
+       postgres:
+         condition: service_healthy
++      migrate:
++        condition: service_completed_successfully
+       keycloak:
+         condition: service_started
+       workspace-dependencies:
+         condition: service_completed_successfully
+     volumes:
+       - .:/workspace
+       - workspace-node-modules:/workspace/node_modules
+     ports:
+       - "3000:3000"
+ 
+   worker:
+     image: node:22-bookworm-slim
+     working_dir: /workspace
+     command: sh -c "corepack enable && pnpm worker"
+     environment:
+-      DATABASE_URL: postgresql://dossie:dossie_local_only@postgres:5432/dossie_triagem
++      DATABASE_URL: postgresql://dossie_app:dossie_app_local_only@postgres:5432/dossie_triagem
+       KEYCLOAK_ISSUER_URL: http://keycloak:8080
+     depends_on:
+       postgres:
+         condition: service_healthy
++      migrate:
++        condition: service_completed_successfully
+       keycloak:
+         condition: service_started
+       workspace-dependencies:
+         condition: service_completed_successfully
+     volumes:
+       - .:/workspace
+       - workspace-node-modules:/workspace/node_modules
+ 
+ volumes:
+   postgres-data:
+diff --git a/docker/postgres/init/001-create-application-role.sql b/docker/postgres/init/001-create-application-role.sql
+new file mode 100644
+index 0000000..0fcc03b
+--- /dev/null
++++ b/docker/postgres/init/001-create-application-role.sql
+@@ -0,0 +1,10 @@
++CREATE ROLE dossie_app
++  LOGIN
++  NOSUPERUSER
++  NOCREATEDB
++  NOCREATEROLE
++  NOBYPASSRLS
++  NOREPLICATION
++  PASSWORD 'dossie_app_local_only';
++
++GRANT CONNECT ON DATABASE dossie_triagem TO dossie_app;
+diff --git a/docs/decisions/005-multitenancy-logica-e-white-label.md b/docs/decisions/005-multitenancy-logica-e-white-label.md
+index 7885cca..5766c29 100644
+--- a/docs/decisions/005-multitenancy-logica-e-white-label.md
++++ b/docs/decisions/005-multitenancy-logica-e-white-label.md
+@@ -12,20 +12,23 @@ A v1 será multi-tenant em uma instância compartilhada, com isolamento lógico
+ obrigatório. Todo agregado persistido pertence a um `tenant_id`; toda consulta,
+ mutação, job e acesso a arquivo aplica esse escopo a partir da identidade
+ autenticada, nunca de um parâmetro controlado pelo cliente. Configuração white
+ label (nome, logo, cores, favicon, remetente e metadados) pertence ao tenant.
+ 
+ O modelo de dados e a camada de repositório deverão impedir acesso sem contexto
+ de tenant. A estratégia de autenticação, controle de acesso e mecanismo de
+ isolamento no banco será fechada no design de deploy, pois depende do provedor e
+ do requisito contratual de cada cliente.
+ 
++O mecanismo foi fechado como defesa em profundidade: repositórios exigem
++`TenantContext` e o PostgreSQL aplica RLS em produção. Ver ADR 020.
++
+ ## Alternativas descartadas
+ 
+ * **Instância dedicada desde a v1:** aumenta operação e custo sem requisito
+   comercial ou contratual informado.
+ * **Tenant apenas na UI ou no subdomínio:** permite bypass pela API ou por jobs.
+ * **Branding fixo por build:** viola white label e força deploy por mudança visual.
+ 
+ ## Consequências
+ 
+ Auditoria, retenção, chaves e políticas de consulta precisarão carregar escopo de
+diff --git a/docs/decisions/020-isolamento-tenant-por-repositorio-e-rls.md b/docs/decisions/020-isolamento-tenant-por-repositorio-e-rls.md
+new file mode 100644
+index 0000000..02bc354
+--- /dev/null
++++ b/docs/decisions/020-isolamento-tenant-por-repositorio-e-rls.md
+@@ -0,0 +1,45 @@
++# ADR 020 — Isolamento tenant por repositório e RLS
++
++## Contexto
++
++Um `tenant_id` tipado ou um filtro Prisma escrito em cada consulta não impõe
++isolamento: uma chamada esquecida pode ler ou gravar outro tenant. A Task 3
++introduz dados pessoais cifrados, portanto um vazamento é falha de segurança.
++
++## Decisão
++
++Toda leitura e escrita de dados tenant-scoped passa por repositório que recebe
++`TenantContext` derivado do ator autenticado, nunca de input HTTP. O cliente
++Prisma cru fica privado ao módulo de repositórios; uma regra arquitetural/lint
++proíbe seu import fora dessa camada. O ator de sistema também fornece contexto
++de tenant explícito e não tem bypass global.
++
++Em PostgreSQL de produção, toda tabela tenant-scoped usa `FORCE ROW LEVEL
++SECURITY` e policy baseada em `current_setting('app.tenant_id', true)`. O
++wrapper transacional do repositório executa `SET LOCAL app.tenant_id` antes de
++qualquer query; `SET LOCAL` termina com a transação, evitando vazamento em pool.
++RLS é segunda barreira, não substituto da autorização do domínio. Migrações usam
++credencial separada; a aplicação não recebe `BYPASSRLS`.
++
++CPF usa AEAD (AES-GCM no adapter KMS) com associated data canônico formado por
++`tenant_id` e `debtor_id`; ciphertext movido entre registros ou tenants falha a
++decifra. O índice usa HMAC com segredo no cofre, separado da chave de cifra; uma
++rotação da chave HMAC exige reindexação de todos os índices ativos. A destruição
++da chave individual retorna `ELIMINADO_A_PEDIDO_DO_TITULAR` ao leitor, mantendo
++somente o esqueleto de auditoria.
++
++## Alternativas descartadas
++
++- **Filtro `tenant_id` em cada query:** fácil de esquecer e impossível de provar
++  por inspeção local.
++- **RLS sem repositório:** protege o banco, mas não valida autorização de
++  carteira nem impede contexto ausente antes do acesso.
++- **Repositório sem RLS:** reduz superfície, mas uma regressão ou consulta
++  administrativa futura ainda pode vazar dados.
++
++## Consequências
++
++Pooling exige sempre transação curta com `SET LOCAL`; consultas fora do wrapper
++são defeito. Testes precisam registrar RED da leitura A→B antes da guarda e
++provar que remoção dela falha. AES-GCM, HMAC e seus segredos são portas
++separadas, com fixtures somente sintéticas.
+diff --git a/eslint.config.mjs b/eslint.config.mjs
+index bc9809a..e49391e 100644
+--- a/eslint.config.mjs
++++ b/eslint.config.mjs
+@@ -1,19 +1,67 @@
+ import eslint from "@eslint/js";
+ import tseslint from "typescript-eslint";
+ 
+ export default tseslint.config(
+   {
+     ignores: ["**/dist/**", "**/generated/**", "**/node_modules/**"],
+   },
+   eslint.configs.recommended,
+   ...tseslint.configs.recommended,
++  {
++    files: ["**/*.ts"],
++    ignores: ["packages/adapters/src/repositories/**/*.ts"],
++    rules: {
++      "no-restricted-imports": [
++        "error",
++        {
++          paths: [
++            {
++              name: "@prisma/client",
++              message:
++                "Raw Prisma is private to packages/adapters/src/repositories.",
++            },
++            {
++              name: "@panella/domain",
++              importNames: ["issueAuthenticatedActor"],
++              message:
++                "Only the verified Keycloak adapter may issue a runtime-authenticated actor.",
++            },
++          ],
++        },
++      ],
++    },
++  },
++  {
++    files: [
++      "packages/domain/src/**/*.ts",
++      "packages/adapters/src/keycloak.ts",
++      "**/*.test.ts",
++    ],
++    ignores: [
++      "packages/adapters/src/repositories/**/*.test.ts",
++    ],
++    rules: {
++      "no-restricted-imports": [
++        "error",
++        {
++          paths: [
++            {
++              name: "@prisma/client",
++              message:
++                "Raw Prisma is private to packages/adapters/src/repositories.",
++            },
++          ],
++        },
++      ],
++    },
++  },
+   {
+     files: [
+       "packages/domain/src/money.ts",
+       "packages/adapters/src/money-normalizer.ts",
+     ],
+     rules: {
+       "no-restricted-syntax": [
+         "error",
+         {
+           selector: "TSNumberKeyword",
+diff --git a/package.json b/package.json
+index 5b3f636..5189224 100644
+--- a/package.json
++++ b/package.json
+@@ -8,17 +8,19 @@
+   "scripts": {
+     "test": "pnpm -r test",
+     "lint": "eslint . --max-warnings=0",
+     "typecheck": "tsc --project tsconfig.base.json --noEmit",
+     "generate:contracts": "pnpm --filter @panella/contracts generate",
+     "dev": "pnpm --filter @panella/web dev",
+     "worker": "pnpm --filter @panella/worker start"
+   },
+   "devDependencies": {
+     "@eslint/js": "^9.35.0",
++    "@prisma/client": "6.19.0",
+     "@types/node": "^22.15.0",
+     "eslint": "^9.35.0",
++    "prisma": "6.19.0",
+     "typescript": "^5.8.3",
+     "typescript-eslint": "^8.42.0",
+     "vitest": "^3.2.4"
+   }
+ }
+diff --git a/packages/adapters/package.json b/packages/adapters/package.json
+index 2b8f4ff..c8c91ca 100644
+--- a/packages/adapters/package.json
++++ b/packages/adapters/package.json
+@@ -1,8 +1,14 @@
+ {
+   "name": "@panella/adapters",
+   "private": true,
+   "version": "0.0.0",
++  "type": "module",
+   "scripts": {
+     "test": "vitest run --passWithNoTests"
++  },
++  "dependencies": {
++    "@panella/domain": "workspace:*",
++    "@prisma/client": "6.19.0",
++    "zod": "4.1.12"
+   }
+ }
+diff --git a/packages/adapters/src/keycloak.test.ts b/packages/adapters/src/keycloak.test.ts
+new file mode 100644
+index 0000000..5dac79a
+--- /dev/null
++++ b/packages/adapters/src/keycloak.test.ts
+@@ -0,0 +1,67 @@
++import { describe, expect, it } from "vitest";
++
++import { mapVerifiedKeycloakActor } from "./keycloak.js";
++
++describe("mapVerifiedKeycloakActor", () => {
++  it("uses issuer and subject as the stable human identity", () => {
++    expect(
++      mapVerifiedKeycloakActor(
++        {
++          iss: "https://identity.example/realms/acme",
++          sub: "8f139166-862c-4d8b-9737-820fb1fba16a",
++        },
++        {
++          actorId: "human-a",
++          tenantId: "tenant-a",
++          kind: "HUMAN",
++          roles: ["ANALISTA_DOSSIE"],
++        },
++      ),
++    ).toMatchObject({
++      id: "human-a",
++      provider: "https://identity.example/realms/acme",
++      subject: "8f139166-862c-4d8b-9737-820fb1fba16a",
++      kind: "HUMAN",
++      tenantId: "tenant-a",
++    });
++  });
++
++  it("keeps the verified service-account subject as the agent identity", () => {
++    expect(
++      mapVerifiedKeycloakActor(
++        {
++          iss: "https://identity.example/realms/acme",
++          sub: "service-account-collection-agent",
++        },
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          kind: "AGENT",
++          roles: [],
++        },
++      ),
++    ).toEqual({
++      id: "agent-a",
++      provider: "https://identity.example/realms/acme",
++      subject: "service-account-collection-agent",
++      kind: "AGENT",
++      tenantId: "tenant-a",
++      roles: [],
++      walletGrants: [],
++    });
++  });
++
++  it("rejects claims without both standard OIDC identity fields", () => {
++    expect(() =>
++      mapVerifiedKeycloakActor(
++        { iss: "https://identity.example/realms/acme" },
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          kind: "AGENT",
++          roles: [],
++        },
++      ),
++    ).toThrow();
++  });
++});
+diff --git a/packages/adapters/src/keycloak.ts b/packages/adapters/src/keycloak.ts
+new file mode 100644
+index 0000000..15070b4
+--- /dev/null
++++ b/packages/adapters/src/keycloak.ts
+@@ -0,0 +1,61 @@
++import {
++  IdentityRefSchema,
++  issueAuthenticatedActor,
++  type Actor,
++  type ActorKind,
++  type HumanRole,
++} from "@panella/domain";
++import { z } from "zod";
++
++const VerifiedOidcIdentityClaimsSchema = z
++  .object({
++    iss: z.string().min(1),
++    sub: z.string().min(1),
++  })
++  .passthrough();
++
++const ActorProfileSchema = z
++  .object({
++    actorId: z.string().min(1),
++    tenantId: z.string().min(1),
++    kind: z.enum(["HUMAN", "AGENT", "SYSTEM"]),
++    roles: z.array(
++      z.enum([
++        "ADMIN_TENANT",
++        "ANALISTA_DOSSIE",
++        "OPERADOR_COBRANCA",
++        "ENCARREGADO_LGPD",
++      ]),
++    ),
++  })
++  .strict();
++
++export interface KeycloakActorProfile {
++  readonly actorId: string;
++  readonly tenantId: string;
++  readonly kind: ActorKind;
++  readonly roles: readonly HumanRole[];
++}
++
++export function mapVerifiedKeycloakActor(
++  verifiedClaims: unknown,
++  profile: KeycloakActorProfile,
++): Actor {
++  const claims = VerifiedOidcIdentityClaimsSchema.parse(verifiedClaims);
++  const parsedProfile = ActorProfileSchema.parse(profile);
++  const identity = IdentityRefSchema.parse({
++    provider: claims.iss,
++    subject: claims.sub,
++  });
++
++  return issueAuthenticatedActor({
++    id: parsedProfile.actorId,
++    kind: parsedProfile.kind,
++    provider: identity.provider,
++    subject: identity.subject,
++    tenantId: parsedProfile.tenantId,
++    roles: parsedProfile.roles,
++    // Runtime grants are loaded from the domain repository for every request.
++    walletGrants: [],
++  });
++}
+diff --git a/packages/adapters/src/kms.test.ts b/packages/adapters/src/kms.test.ts
+new file mode 100644
+index 0000000..1d3a3f6
+--- /dev/null
++++ b/packages/adapters/src/kms.test.ts
+@@ -0,0 +1,100 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  AwsKmsConfigurationSchema,
++  createInMemoryCpfCrypto,
++} from "./kms.js";
++
++const audit = {
++  pseudonymousDebtorId: "subject-7f55",
++  tenantId: "tenant-a",
++  retainedAt: "2026-07-30T12:00:00.000Z",
++  reason: "TITULAR_REQUEST" as const,
++};
++
++describe("CPF encryption", () => {
++  it("rejects ciphertext copied to another tenant or debtor", async () => {
++    const crypto = createInMemoryCpfCrypto();
++    const record = await crypto.encryptCpf(
++      "52998224725",
++      { tenantId: "tenant-a", debtorId: "debtor-a" },
++      audit,
++    );
++
++    await expect(
++      crypto.decryptCpf({ ...record, tenantId: "tenant-b" }),
++    ).rejects.toThrow("AEAD_AUTH_FAILED");
++    await expect(
++      crypto.decryptCpf({ ...record, debtorId: "debtor-b" }),
++    ).rejects.toThrow("AEAD_AUTH_FAILED");
++  });
++
++  it("uses a vault-held HMAC secret separate from the debtor encryption key", async () => {
++    const crypto = createInMemoryCpfCrypto();
++    const record = await crypto.encryptCpf(
++      "52998224725",
++      { tenantId: "tenant-a", debtorId: "debtor-a" },
++      audit,
++    );
++
++    expect(record.cpfHmac).toMatch(/^[a-f0-9]{64}$/);
++    expect(record.cpfHmac).not.toBe(
++      "bc90a46d4ff5384b04de7d791f60f5e9dc74bfc1c104ce2b37bc9d0f7e4ce668",
++    );
++    expect(record.keyReference).not.toBe(record.hmacKeyReference);
++    await expect(
++      crypto.rotateHmacKey("tenant-a"),
++    ).resolves.toEqual({
++      reindexRequired: true,
++      previousVersion: "1",
++      activeVersion: "2",
++    });
++  });
++
++  it("destroys only the selected debtor key and returns the audit skeleton", async () => {
++    const crypto = createInMemoryCpfCrypto();
++    const recordA = await crypto.encryptCpf(
++      "52998224725",
++      { tenantId: "tenant-a", debtorId: "debtor-a" },
++      audit,
++    );
++    const olderRecordA = await crypto.encryptCpf(
++      "52998224725",
++      { tenantId: "tenant-a", debtorId: "debtor-a" },
++      audit,
++    );
++    const recordB = await crypto.encryptCpf(
++      "11144477735",
++      { tenantId: "tenant-a", debtorId: "debtor-b" },
++      { ...audit, pseudonymousDebtorId: "subject-91ac" },
++    );
++
++    await crypto.destroyDebtorKey({
++      tenantId: "tenant-a",
++      debtorId: "debtor-a",
++    });
++
++    const eliminated = await crypto.readDebtor(recordA);
++    expect(eliminated).toEqual({
++      readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
++      audit,
++    });
++    expect(eliminated).not.toHaveProperty("ciphertext");
++    await expect(crypto.readDebtor(olderRecordA)).resolves.toEqual({
++      readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
++      audit,
++    });
++    await expect(crypto.decryptCpf(recordB)).resolves.toBe("11144477735");
++  });
++});
++
++describe("AWS KMS configuration", () => {
++  it("rejects reuse of the cipher key as the HMAC secret", () => {
++    expect(() =>
++      AwsKmsConfigurationSchema.parse({
++        cipherKeyArn: "arn:aws:kms:sa-east-1:000000000000:key/cipher",
++        hmacSecretArn: "arn:aws:kms:sa-east-1:000000000000:key/cipher",
++      }),
++    ).toThrow("SEPARATE_HMAC_SECRET_REQUIRED");
++  });
++});
+diff --git a/packages/adapters/src/kms.ts b/packages/adapters/src/kms.ts
+new file mode 100644
+index 0000000..265a0a1
+--- /dev/null
++++ b/packages/adapters/src/kms.ts
+@@ -0,0 +1,296 @@
++import {
++  createCipheriv,
++  createDecipheriv,
++  createHmac,
++  randomBytes,
++  randomUUID,
++} from "node:crypto";
++
++import { z } from "zod";
++
++export interface CpfAssociatedData {
++  readonly tenantId: string;
++  readonly debtorId: string;
++}
++
++export interface AuditSkeleton {
++  readonly pseudonymousDebtorId: string;
++  readonly tenantId: string;
++  readonly retainedAt: string;
++  readonly reason: "TITULAR_REQUEST";
++}
++
++export interface EncryptedCpfRecord extends CpfAssociatedData {
++  readonly ciphertext: string;
++  readonly iv: string;
++  readonly authTag: string;
++  readonly keyReference: string;
++  readonly cpfHmac: string;
++  readonly hmacKeyReference: string;
++  readonly audit: AuditSkeleton;
++}
++
++export type DebtorReadResult =
++  | {
++      readonly readState: "ACTIVE";
++      readonly cpf: string;
++      readonly audit: AuditSkeleton;
++    }
++  | {
++      readonly readState: "ELIMINADO_A_PEDIDO_DO_TITULAR";
++      readonly audit: AuditSkeleton;
++    };
++
++interface CipherKeyVault {
++  createKey(context: CpfAssociatedData): Promise<{
++    readonly reference: string;
++    readonly key: Buffer;
++  }>;
++  readKey(reference: string): Promise<Buffer | null>;
++  destroyKey(context: CpfAssociatedData): Promise<void>;
++}
++
++interface HmacSecretVault {
++  readActiveSecret(tenantId: string): Promise<{
++    readonly reference: string;
++    readonly version: string;
++    readonly secret: Buffer;
++  }>;
++  rotate(tenantId: string): Promise<{
++    readonly previousVersion: string;
++    readonly activeVersion: string;
++  }>;
++}
++
++interface StoredCipherKey extends CpfAssociatedData {
++  readonly key: Buffer;
++}
++
++function scopeKey(context: CpfAssociatedData): string {
++  return `${context.tenantId.length}:${context.tenantId}|${context.debtorId.length}:${context.debtorId}`;
++}
++
++function associatedData(context: CpfAssociatedData): Buffer {
++  return Buffer.from(scopeKey(context), "utf8");
++}
++
++function assertCpf(cpf: string): void {
++  if (!/^\d{11}$/.test(cpf)) {
++    throw new Error("INVALID_CPF_FORMAT");
++  }
++}
++
++class InMemoryCipherKeyVault implements CipherKeyVault {
++  private readonly keysByReference = new Map<string, StoredCipherKey>();
++  private readonly referenceByScope = new Map<string, string>();
++
++  public async createKey(context: CpfAssociatedData): Promise<{
++    readonly reference: string;
++    readonly key: Buffer;
++  }> {
++    const existingReference = this.referenceByScope.get(scopeKey(context));
++    const existing = existingReference
++      ? this.keysByReference.get(existingReference)
++      : undefined;
++    if (existingReference && existing) {
++      return { reference: existingReference, key: existing.key };
++    }
++
++    const reference = `debtor-key:${randomUUID()}`;
++    const key = randomBytes(32);
++    this.keysByReference.set(reference, { ...context, key });
++    this.referenceByScope.set(scopeKey(context), reference);
++    return { reference, key };
++  }
++
++  public async readKey(reference: string): Promise<Buffer | null> {
++    const stored = this.keysByReference.get(reference);
++    return stored?.key ?? null;
++  }
++
++  public async destroyKey(context: CpfAssociatedData): Promise<void> {
++    const scopedReference = this.referenceByScope.get(scopeKey(context));
++    if (!scopedReference) {
++      return;
++    }
++
++    this.referenceByScope.delete(scopeKey(context));
++    this.keysByReference.delete(scopedReference);
++  }
++}
++
++interface StoredHmacSecret {
++  readonly version: string;
++  readonly secret: Buffer;
++}
++
++class InMemoryHmacSecretVault implements HmacSecretVault {
++  private readonly secrets = new Map<string, StoredHmacSecret>();
++
++  private active(tenantId: string): StoredHmacSecret {
++    const existing = this.secrets.get(tenantId);
++    if (existing) {
++      return existing;
++    }
++
++    const created = { version: "1", secret: randomBytes(32) };
++    this.secrets.set(tenantId, created);
++    return created;
++  }
++
++  public async readActiveSecret(tenantId: string): Promise<{
++    readonly reference: string;
++    readonly version: string;
++    readonly secret: Buffer;
++  }> {
++    const active = this.active(tenantId);
++    return {
++      reference: `hmac-secret:${tenantId}:${active.version}`,
++      version: active.version,
++      secret: active.secret,
++    };
++  }
++
++  public async rotate(tenantId: string): Promise<{
++    readonly previousVersion: string;
++    readonly activeVersion: string;
++  }> {
++    const previous = this.active(tenantId);
++    const activeVersion = String(Number.parseInt(previous.version, 10) + 1);
++    this.secrets.set(tenantId, {
++      version: activeVersion,
++      secret: randomBytes(32),
++    });
++    return { previousVersion: previous.version, activeVersion };
++  }
++}
++
++export class CpfCryptoService {
++  public constructor(
++    private readonly cipherKeys: CipherKeyVault,
++    private readonly hmacSecrets: HmacSecretVault,
++  ) {}
++
++  public async indexCpf(cpf: string, tenantId: string): Promise<string> {
++    assertCpf(cpf);
++    const hmac = await this.hmacSecrets.readActiveSecret(tenantId);
++    return createHmac("sha256", hmac.secret).update(cpf, "utf8").digest("hex");
++  }
++
++  public async encryptCpf(
++    cpf: string,
++    context: CpfAssociatedData,
++    audit: AuditSkeleton,
++  ): Promise<EncryptedCpfRecord> {
++    assertCpf(cpf);
++    if (audit.tenantId !== context.tenantId) {
++      throw new Error("TENANT_SCOPE_MISMATCH");
++    }
++
++    const [cipherKey, hmacSecret] = await Promise.all([
++      this.cipherKeys.createKey(context),
++      this.hmacSecrets.readActiveSecret(context.tenantId),
++    ]);
++    const iv = randomBytes(12);
++    const cipher = createCipheriv("aes-256-gcm", cipherKey.key, iv);
++    cipher.setAAD(associatedData(context));
++    const ciphertext = Buffer.concat([
++      cipher.update(cpf, "utf8"),
++      cipher.final(),
++    ]);
++
++    return {
++      ...context,
++      ciphertext: ciphertext.toString("base64"),
++      iv: iv.toString("base64"),
++      authTag: cipher.getAuthTag().toString("base64"),
++      keyReference: cipherKey.reference,
++      cpfHmac: createHmac("sha256", hmacSecret.secret)
++        .update(cpf, "utf8")
++        .digest("hex"),
++      hmacKeyReference: hmacSecret.reference,
++      audit,
++    };
++  }
++
++  public async decryptCpf(record: EncryptedCpfRecord): Promise<string> {
++    const context = {
++      tenantId: record.tenantId,
++      debtorId: record.debtorId,
++    };
++    const key = await this.cipherKeys.readKey(record.keyReference);
++    if (!key) {
++      throw new Error("DEBTOR_KEY_NOT_AVAILABLE");
++    }
++
++    try {
++      const decipher = createDecipheriv(
++        "aes-256-gcm",
++        key,
++        Buffer.from(record.iv, "base64"),
++      );
++      decipher.setAAD(associatedData(context));
++      decipher.setAuthTag(Buffer.from(record.authTag, "base64"));
++      return Buffer.concat([
++        decipher.update(Buffer.from(record.ciphertext, "base64")),
++        decipher.final(),
++      ]).toString("utf8");
++    } catch {
++      throw new Error("AEAD_AUTH_FAILED");
++    }
++  }
++
++  public async destroyDebtorKey(context: CpfAssociatedData): Promise<void> {
++    await this.cipherKeys.destroyKey(context);
++  }
++
++  public async readDebtor(
++    record: EncryptedCpfRecord,
++  ): Promise<DebtorReadResult> {
++    const key = await this.cipherKeys.readKey(record.keyReference);
++    if (!key) {
++      return {
++        readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
++        audit: record.audit,
++      };
++    }
++
++    return {
++      readState: "ACTIVE",
++      cpf: await this.decryptCpf(record),
++      audit: record.audit,
++    };
++  }
++
++  public async rotateHmacKey(tenantId: string): Promise<{
++    readonly reindexRequired: true;
++    readonly previousVersion: string;
++    readonly activeVersion: string;
++  }> {
++    const rotation = await this.hmacSecrets.rotate(tenantId);
++    return { reindexRequired: true, ...rotation };
++  }
++}
++
++export function createInMemoryCpfCrypto(): CpfCryptoService {
++  return new CpfCryptoService(
++    new InMemoryCipherKeyVault(),
++    new InMemoryHmacSecretVault(),
++  );
++}
++
++export const AwsKmsConfigurationSchema = z
++  .object({
++    cipherKeyArn: z.string().min(1),
++    hmacSecretArn: z.string().min(1),
++  })
++  .strict()
++  .refine(
++    (configuration) =>
++      configuration.cipherKeyArn !== configuration.hmacSecretArn,
++    { message: "SEPARATE_HMAC_SECRET_REQUIRED" },
++  );
++
++export type AwsKmsConfiguration = z.infer<
++  typeof AwsKmsConfigurationSchema
++>;
+diff --git a/packages/adapters/src/repositories/postgres-rls.integration.test.ts b/packages/adapters/src/repositories/postgres-rls.integration.test.ts
+new file mode 100644
+index 0000000..4602278
+--- /dev/null
++++ b/packages/adapters/src/repositories/postgres-rls.integration.test.ts
+@@ -0,0 +1,203 @@
++import { execFileSync } from "node:child_process";
++import { fileURLToPath } from "node:url";
++import { resolve } from "node:path";
++
++import { describe, expect, it } from "vitest";
++
++const workspaceRoot = resolve(
++  fileURLToPath(new URL(".", import.meta.url)),
++  "../../../..",
++);
++
++interface ComposeService {
++  readonly environment?: Record<string, string>;
++  readonly depends_on?: Record<string, { readonly condition?: string }>;
++  readonly healthcheck?: { readonly test?: readonly string[] };
++}
++
++interface ComposeConfig {
++  readonly services: Record<string, ComposeService>;
++}
++
++function composeConfig(): ComposeConfig {
++  return JSON.parse(
++    execFileSync("docker", ["compose", "config", "--format", "json"], {
++      cwd: workspaceRoot,
++      encoding: "utf8",
++    }),
++  ) as ComposeConfig;
++}
++
++function psql(role: "dossie_owner" | "dossie_app", sql: string): string {
++  const password =
++    role === "dossie_owner"
++      ? "dossie_owner_local_only"
++      : "dossie_app_local_only";
++  return execFileSync(
++    "docker",
++    [
++      "compose",
++      "exec",
++      "-T",
++      "-e",
++      `PGPASSWORD=${password}`,
++      "postgres",
++      "psql",
++      "-v",
++      "ON_ERROR_STOP=1",
++      "-U",
++      role,
++      "-d",
++      "dossie_triagem",
++      "-tA",
++      "-c",
++      sql,
++    ],
++    { cwd: workspaceRoot, encoding: "utf8" },
++  );
++}
++
++interface TenantTableCatalogRow {
++  readonly table: string;
++  readonly rls: boolean;
++  readonly force: boolean;
++  readonly policies: readonly {
++    readonly using: string | null;
++    readonly check: string | null;
++  }[];
++}
++
++describe("production RLS compose contract", () => {
++  it("runs migrations as owner and starts application services only with the restricted role", () => {
++    const services = composeConfig().services;
++    const postgres = services.postgres;
++    const migrate = services.migrate;
++    const web = services.web;
++    const worker = services.worker;
++
++    if (!postgres || !migrate || !web || !worker) {
++      throw new Error("RLS_COMPOSE_SERVICES_REQUIRED");
++    }
++    expect(postgres.healthcheck?.test?.join(" ")).toContain("dossie_owner");
++    expect(migrate.environment?.DATABASE_URL).toContain("dossie_owner");
++    expect(web.environment?.DATABASE_URL).toContain("dossie_app");
++    expect(worker.environment?.DATABASE_URL).toContain("dossie_app");
++    expect(web.depends_on?.migrate?.condition).toBe(
++      "service_completed_successfully",
++    );
++    expect(worker.depends_on?.migrate?.condition).toBe(
++      "service_completed_successfully",
++    );
++  });
++
++  it("enforces RLS for direct application-role reads and covers every tenant table", () => {
++    psql(
++      "dossie_owner",
++      `INSERT INTO "Tenant" ("id") VALUES ('tenant-a'), ('tenant-b') ON CONFLICT ("id") DO NOTHING;
++       INSERT INTO "Wallet" ("id", "tenantId", "name", "importedAt")
++       VALUES ('wallet-b', 'tenant-b', 'wallet fixture', CURRENT_TIMESTAMP)
++       ON CONFLICT ("id") DO NOTHING;`,
++    );
++
++    const directRead = psql(
++      "dossie_app",
++      `BEGIN;
++       SELECT set_config('app.tenant_id', 'tenant-a', true);
++       SELECT count(*) FROM "Wallet" WHERE "tenantId" = 'tenant-b';
++       ROLLBACK;`,
++    )
++      .trim()
++      .split(/\r?\n/)
++      .at(-2);
++    expect(directRead).toBe("0");
++
++    const role = JSON.parse(
++      psql(
++        "dossie_owner",
++        `SELECT json_build_object(
++          'superuser', rol.rolsuper,
++          'bypassRls', rol.rolbypassrls,
++          'ownsTenantTable', EXISTS (
++            SELECT 1
++            FROM pg_class cls
++            JOIN pg_namespace ns ON ns.oid = cls.relnamespace
++            WHERE ns.nspname = 'public'
++              AND cls.relkind = 'r'
++              AND cls.relowner = rol.oid
++              AND (cls.relname = 'Tenant' OR EXISTS (
++                SELECT 1 FROM pg_attribute attr
++                WHERE attr.attrelid = cls.oid
++                  AND attr.attname = 'tenantId'
++                  AND NOT attr.attisdropped
++              ))
++          )
++        )
++        FROM pg_roles rol
++        WHERE rol.rolname = 'dossie_app';`,
++      ),
++    ) as {
++      readonly superuser: boolean;
++      readonly bypassRls: boolean;
++      readonly ownsTenantTable: boolean;
++    };
++    expect(role).toEqual({
++      superuser: false,
++      bypassRls: false,
++      ownsTenantTable: false,
++    });
++
++    const tables = JSON.parse(
++      psql(
++        "dossie_owner",
++        `WITH tenant_tables AS (
++          SELECT cls.oid, cls.relname, cls.relrowsecurity, cls.relforcerowsecurity
++          FROM pg_class cls
++          JOIN pg_namespace ns ON ns.oid = cls.relnamespace
++          WHERE ns.nspname = 'public'
++            AND cls.relkind = 'r'
++            AND (cls.relname = 'Tenant' OR EXISTS (
++              SELECT 1 FROM pg_attribute attr
++              WHERE attr.attrelid = cls.oid
++                AND attr.attname = 'tenantId'
++                AND NOT attr.attisdropped
++            ))
++        )
++        SELECT COALESCE(json_agg(json_build_object(
++          'table', relname,
++          'rls', relrowsecurity,
++          'force', relforcerowsecurity,
++          'policies', (
++            SELECT COALESCE(json_agg(json_build_object(
++              'using', pg_get_expr(policy.polqual, policy.polrelid),
++              'check', pg_get_expr(policy.polwithcheck, policy.polrelid)
++            )), '[]'::json)
++            FROM pg_policy policy
++            WHERE policy.polrelid = tenant_tables.oid
++          )
++        ) ORDER BY relname), '[]'::json)
++        FROM tenant_tables;`,
++      ),
++    ) as readonly TenantTableCatalogRow[];
++
++    expect(tables.map((table) => table.table)).toEqual([
++      "ActorIdentity",
++      "AgentWalletGrant",
++      "Debtor",
++      "Observation",
++      "Tenant",
++      "Title",
++      "Wallet",
++    ]);
++    for (const table of tables) {
++      expect(table.rls).toBe(true);
++      expect(table.force).toBe(true);
++      expect(table.policies).not.toHaveLength(0);
++      for (const policy of table.policies) {
++        expect(policy.using).toContain("current_setting");
++        expect(policy.using).toContain("app.tenant_id");
++        expect(policy.check).toContain("current_setting");
++        expect(policy.check).toContain("app.tenant_id");
++      }
++    }
++  });
++});
+diff --git a/packages/adapters/src/repositories/prisma-observation-repository.test.ts b/packages/adapters/src/repositories/prisma-observation-repository.test.ts
+new file mode 100644
+index 0000000..d6c5ac9
+--- /dev/null
++++ b/packages/adapters/src/repositories/prisma-observation-repository.test.ts
+@@ -0,0 +1,136 @@
++import { describe, expect, it, vi } from "vitest";
++
++import {
++  createTenantContext,
++  issueAuthenticatedActor,
++  type Actor,
++  type TenantContext,
++} from "@panella/domain";
++import type { PrismaClient } from "@prisma/client";
++
++const prismaClientFixture = vi.hoisted(() => ({
++  client: undefined as PrismaClient | undefined,
++}));
++
++vi.mock("@prisma/client", () => ({
++  PrismaClient: class {
++    public constructor() {
++      return prismaClientFixture.client as PrismaClient;
++    }
++  },
++  Prisma: { JsonNull: null },
++}));
++
++import {
++  createPrismaObservationRepository,
++} from "./prisma-observation-repository.js";
++
++const context: TenantContext = createTenantContext(issueAuthenticatedActor({
++  id: "worker-a",
++  kind: "SYSTEM",
++  provider: "internal://workers",
++  subject: "worker-a",
++  tenantId: "tenant-a",
++  roles: [],
++  walletGrants: [],
++} satisfies Actor));
++
++describe("Prisma observation repository", () => {
++  it("rejects a Prisma client override at the production repository factory", () => {
++    expect(() =>
++      createPrismaObservationRepository({
++        client: {} as PrismaClient,
++      } as unknown as string),
++    ).toThrow("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
++  });
++
++  it("sets the transaction-local tenant after rejecting bypass roles and before a query", async () => {
++    const events: string[] = [];
++    let applicationRoleChecked = false;
++    let localTenant: string | undefined;
++    const transaction = {
++      $queryRaw: async () => {
++        events.push("ROLE_CHECK");
++        applicationRoleChecked = true;
++        return [{ isSuperuser: false, canBypassRls: false }];
++      },
++      $queryRawUnsafe: async (_statement: string, tenantId: string) => {
++        if (!applicationRoleChecked) {
++          throw new Error("ROLE_CHECK_REQUIRED");
++        }
++        events.push(`SET_LOCAL:${tenantId}`);
++        localTenant = tenantId;
++        return [{ set_config: tenantId }];
++      },
++      observation: {
++        findUnique: async () => {
++          if (localTenant !== "tenant-a") {
++            throw new Error("RLS_TENANT_NOT_SET");
++          }
++          events.push("FIND");
++          return {
++            id: "observation-a",
++            tenantId: "tenant-a",
++            debtorId: "debtor-a",
++            source: "PGFN_DADOS_ABERTOS",
++            status: "ENCONTRADO",
++            queryParams: { scope: "fixture" },
++            payload: null,
++            collectedAt: new Date("2026-07-30T12:00:00.000Z"),
++          };
++        },
++      },
++    };
++    const client = {
++      $transaction: async <Result>(
++        operation: (tx: typeof transaction) => Promise<Result>,
++      ): Promise<Result> => operation(transaction),
++    };
++    prismaClientFixture.client = client as unknown as PrismaClient;
++    const repository = createPrismaObservationRepository();
++
++    await expect(
++      repository.observations.find(context, "observation-a"),
++    ).resolves.toMatchObject({
++      id: "observation-a",
++      tenantId: "tenant-a",
++    });
++    expect(events).toEqual([
++      "ROLE_CHECK",
++      "SET_LOCAL:tenant-a",
++      "FIND",
++    ]);
++  });
++
++  it("rejects a database role with BYPASSRLS before an observation query", async () => {
++    const events: string[] = [];
++    const transaction = {
++      $queryRaw: async () => {
++        events.push("ROLE_CHECK");
++        return [{ isSuperuser: false, canBypassRls: true }];
++      },
++      $queryRawUnsafe: async () => {
++        events.push("SET_LOCAL");
++        return [];
++      },
++      observation: {
++        findUnique: async () => {
++          events.push("FIND");
++          return null;
++        },
++      },
++    };
++    const client = {
++      $transaction: async <Result>(
++        operation: (tx: typeof transaction) => Promise<Result>,
++      ): Promise<Result> => operation(transaction),
++    };
++    prismaClientFixture.client = client as unknown as PrismaClient;
++    const repository = createPrismaObservationRepository();
++
++    await expect(
++      repository.observations.find(context, "observation-a"),
++    ).rejects.toThrow("APPLICATION_DATABASE_ROLE_MUST_ENFORCE_RLS");
++    expect(events).toEqual(["ROLE_CHECK"]);
++  });
++});
+diff --git a/packages/adapters/src/repositories/prisma-observation-repository.ts b/packages/adapters/src/repositories/prisma-observation-repository.ts
+new file mode 100644
+index 0000000..cf8d0ff
+--- /dev/null
++++ b/packages/adapters/src/repositories/prisma-observation-repository.ts
+@@ -0,0 +1,153 @@
++import {
++  Prisma,
++  PrismaClient,
++  type SourceStatus,
++} from "@prisma/client";
++
++import {
++  TransactionalTenantScopedRepository,
++  type TenantRecord,
++  type TenantTransaction,
++  type TenantTransactionDatabase,
++} from "./tenant-repository.js";
++
++export interface ObservationPersistenceRecord extends TenantRecord {
++  readonly debtorId: string;
++  readonly source: string;
++  readonly status:
++    | "ENCONTRADO"
++    | "NAO_ENCONTRADO"
++    | "NAO_CONSULTADO"
++    | "ERRO_NA_FONTE";
++  readonly queryParams: Readonly<Record<string, unknown>>;
++  readonly payload: Readonly<Record<string, unknown>> | null;
++  readonly collectedAt: Date;
++}
++
++interface ApplicationDatabaseRole {
++  readonly isSuperuser: boolean;
++  readonly canBypassRls: boolean;
++}
++
++function toJsonInput(
++  value: Readonly<Record<string, unknown>>,
++): Prisma.InputJsonObject {
++  return value as Prisma.InputJsonObject;
++}
++
++function fromJsonObject(
++  value: Prisma.JsonValue,
++): Readonly<Record<string, unknown>> {
++  if (!value || Array.isArray(value) || typeof value !== "object") {
++    throw new Error("INVALID_OBSERVATION_JSON");
++  }
++  return value;
++}
++
++class PrismaObservationTransaction
++  implements TenantTransaction<ObservationPersistenceRecord>
++{
++  public constructor(private readonly transaction: Prisma.TransactionClient) {}
++
++  public async assertApplicationRole(): Promise<void> {
++    const roles = await this.transaction.$queryRaw<ApplicationDatabaseRole[]>`
++      SELECT
++        rol.rolsuper AS "isSuperuser",
++        rol.rolbypassrls AS "canBypassRls"
++      FROM pg_roles rol
++      WHERE rol.rolname = current_user
++    `;
++    const role = roles[0];
++    if (!role || role.isSuperuser || role.canBypassRls) {
++      throw new Error("APPLICATION_DATABASE_ROLE_MUST_ENFORCE_RLS");
++    }
++  }
++
++  public async setLocalTenant(tenantId: string): Promise<void> {
++    await this.transaction.$queryRawUnsafe(
++      "SELECT set_config('app.tenant_id', $1, true)",
++      tenantId,
++    );
++  }
++
++  public async save(value: ObservationPersistenceRecord): Promise<void> {
++    await this.transaction.observation.upsert({
++      where: { id: value.id },
++      create: {
++        id: value.id,
++        tenantId: value.tenantId,
++        debtorId: value.debtorId,
++        source: value.source,
++        status: value.status as SourceStatus,
++        queryParams: toJsonInput(value.queryParams),
++        payload: value.payload
++          ? toJsonInput(value.payload)
++          : Prisma.JsonNull,
++        collectedAt: value.collectedAt,
++      },
++      update: {},
++    });
++  }
++
++  public async find(
++    id: string,
++  ): Promise<ObservationPersistenceRecord | null> {
++    const record = await this.transaction.observation.findUnique({
++      where: { id },
++    });
++    if (!record) {
++      return null;
++    }
++
++    return {
++      id: record.id,
++      tenantId: record.tenantId,
++      debtorId: record.debtorId,
++      source: record.source,
++      status: record.status,
++      queryParams: fromJsonObject(record.queryParams),
++      payload:
++        record.payload === null ? null : fromJsonObject(record.payload),
++      collectedAt: record.collectedAt,
++    };
++  }
++}
++
++class PrismaObservationDatabase
++  implements TenantTransactionDatabase<ObservationPersistenceRecord>
++{
++  public constructor(private readonly client: PrismaClient) {}
++
++  public async transaction<Result>(
++    operation: (
++      transaction: TenantTransaction<ObservationPersistenceRecord>,
++    ) => Promise<Result>,
++  ): Promise<Result> {
++    return this.client.$transaction((transaction) =>
++      operation(new PrismaObservationTransaction(transaction)),
++    );
++  }
++}
++
++export interface PrismaObservationRepositoryBundle {
++  readonly observations: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
++  disconnect(): Promise<void>;
++}
++
++export function createPrismaObservationRepository(
++  databaseUrl?: string,
++): PrismaObservationRepositoryBundle {
++  if (databaseUrl !== undefined && typeof databaseUrl !== "string") {
++    throw new Error("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
++  }
++  const client = new PrismaClient(
++    databaseUrl ? { datasources: { db: { url: databaseUrl } } } : undefined,
++  );
++  return {
++    observations:
++      new TransactionalTenantScopedRepository<ObservationPersistenceRecord>(
++        new PrismaObservationDatabase(client),
++      ),
++    disconnect: () => client.$disconnect(),
++  };
++}
+diff --git a/packages/adapters/src/repositories/tenant-repository.test.ts b/packages/adapters/src/repositories/tenant-repository.test.ts
+new file mode 100644
+index 0000000..e43b7ad
+--- /dev/null
++++ b/packages/adapters/src/repositories/tenant-repository.test.ts
+@@ -0,0 +1,149 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  createTenantContext,
++  issueAuthenticatedActor,
++  type Actor,
++  type TenantContext,
++} from "@panella/domain";
++
++import {
++  InMemoryTenantScopedRepository,
++  TransactionalTenantScopedRepository,
++  type TenantTransaction,
++  type TenantTransactionDatabase,
++  type TenantRecord,
++} from "./tenant-repository.js";
++
++interface ObservationFixture extends TenantRecord {
++  readonly source: "PGFN_DADOS_ABERTOS";
++}
++
++const actor = (tenantId: string): Actor => ({
++  id: `worker-${tenantId}`,
++  kind: "SYSTEM",
++  provider: "internal://workers",
++  subject: `pgfn-${tenantId}`,
++  tenantId,
++  roles: [],
++  walletGrants: [],
++});
++
++const context = (tenantId: string): TenantContext =>
++  createTenantContext(issueAuthenticatedActor(actor(tenantId)));
++
++class RlsTransactionFixture
++  implements TenantTransaction<ObservationFixture>
++{
++  private tenantId: string | null = null;
++  private applicationRoleChecked = false;
++
++  public constructor(
++    private readonly records: Map<string, ObservationFixture>,
++  ) {}
++
++  public async assertApplicationRole(): Promise<void> {
++    this.applicationRoleChecked = true;
++  }
++
++  public async setLocalTenant(tenantId: string): Promise<void> {
++    if (!this.applicationRoleChecked) {
++      throw new Error("APPLICATION_ROLE_NOT_CHECKED");
++    }
++    this.tenantId = tenantId;
++  }
++
++  public async save(value: ObservationFixture): Promise<void> {
++    if (!this.tenantId) {
++      throw new Error("RLS_TENANT_NOT_SET");
++    }
++    this.records.set(value.id, value);
++  }
++
++  public async find(id: string): Promise<ObservationFixture | null> {
++    if (!this.tenantId) {
++      throw new Error("RLS_TENANT_NOT_SET");
++    }
++    const record = this.records.get(id);
++    return record?.tenantId === this.tenantId ? record : null;
++  }
++}
++
++class RlsDatabaseFixture
++  implements TenantTransactionDatabase<ObservationFixture>
++{
++  private readonly records = new Map<string, ObservationFixture>();
++
++  public async transaction<Result>(
++    operation: (
++      transaction: TenantTransaction<ObservationFixture>,
++    ) => Promise<Result>,
++  ): Promise<Result> {
++    return operation(new RlsTransactionFixture(this.records));
++  }
++}
++
++describe("tenant-scoped repository", () => {
++  it("rejects a tenant context forged outside the actor runtime boundary", async () => {
++    const repository =
++      new InMemoryTenantScopedRepository<ObservationFixture>();
++    const forgedContext = {
++      tenantId: "tenant-a",
++      actor: actor("tenant-a"),
++    } satisfies TenantContext;
++
++    await expect(
++      repository.find(forgedContext, "observation-a"),
++    ).rejects.toThrow("TENANT_CONTEXT_REQUIRED");
++  });
++
++  it("cannot read a tenant A observation through tenant B context", async () => {
++    const repository =
++      new InMemoryTenantScopedRepository<ObservationFixture>();
++    const observation: ObservationFixture = {
++      id: "observation-a",
++      tenantId: "tenant-a",
++      source: "PGFN_DADOS_ABERTOS",
++    };
++
++    await repository.save(context("tenant-a"), observation);
++
++    await expect(
++      repository.find(context("tenant-b"), observation.id),
++    ).resolves.toBeNull();
++  });
++
++  it("rejects a write whose record tenant differs from the runtime context", async () => {
++    const repository =
++      new InMemoryTenantScopedRepository<ObservationFixture>();
++
++    await expect(
++      repository.save(context("tenant-b"), {
++        id: "observation-a",
++        tenantId: "tenant-a",
++        source: "PGFN_DADOS_ABERTOS",
++      }),
++    ).rejects.toThrow("TENANT_SCOPE_MISMATCH");
++  });
++
++  it("sets a fresh transaction-local RLS tenant for every operation", async () => {
++    const repository =
++      new TransactionalTenantScopedRepository<ObservationFixture>(
++        new RlsDatabaseFixture(),
++      );
++    const observation: ObservationFixture = {
++      id: "observation-a",
++      tenantId: "tenant-a",
++      source: "PGFN_DADOS_ABERTOS",
++    };
++
++    await repository.save(context("tenant-a"), observation);
++
++    await expect(
++      repository.find(context("tenant-b"), observation.id),
++    ).resolves.toBeNull();
++    await expect(
++      repository.find(context("tenant-a"), observation.id),
++    ).resolves.toEqual(observation);
++  });
++});
+diff --git a/packages/adapters/src/repositories/tenant-repository.ts b/packages/adapters/src/repositories/tenant-repository.ts
+new file mode 100644
+index 0000000..c1fa527
+--- /dev/null
++++ b/packages/adapters/src/repositories/tenant-repository.ts
+@@ -0,0 +1,87 @@
++import {
++  assertTenantContext,
++  type TenantContext,
++  type TenantScopedRepository,
++} from "@panella/domain";
++
++export interface TenantRecord {
++  readonly id: string;
++  readonly tenantId: string;
++}
++
++export interface TenantTransaction<T extends TenantRecord> {
++  assertApplicationRole(): Promise<void>;
++  setLocalTenant(tenantId: string): Promise<void>;
++  save(value: T): Promise<void>;
++  find(id: string): Promise<T | null>;
++}
++
++export interface TenantTransactionDatabase<T extends TenantRecord> {
++  transaction<Result>(
++    operation: (transaction: TenantTransaction<T>) => Promise<Result>,
++  ): Promise<Result>;
++}
++
++function assertContext(context: TenantContext): void {
++  assertTenantContext(context);
++}
++
++function assertWriteScope(
++  context: TenantContext,
++  value: TenantRecord,
++): void {
++  assertContext(context);
++  if (value.tenantId !== context.tenantId) {
++    throw new Error("TENANT_SCOPE_MISMATCH");
++  }
++}
++
++export class InMemoryTenantScopedRepository<T extends TenantRecord>
++  implements TenantScopedRepository<T>
++{
++  private readonly records = new Map<string, T>();
++
++  public async save(context: TenantContext, value: T): Promise<void> {
++    assertWriteScope(context, value);
++    this.records.set(value.id, value);
++  }
++
++  public async find(
++    context: TenantContext,
++    id: string,
++  ): Promise<T | null> {
++    assertContext(context);
++    const record = this.records.get(id);
++    return record?.tenantId === context.tenantId ? record : null;
++  }
++}
++
++export class TransactionalTenantScopedRepository<T extends TenantRecord>
++  implements TenantScopedRepository<T>
++{
++  public constructor(
++    private readonly database: TenantTransactionDatabase<T>,
++  ) {}
++
++  public async save(context: TenantContext, value: T): Promise<void> {
++    assertWriteScope(context, value);
++    await this.database.transaction(async (transaction) => {
++      await transaction.assertApplicationRole();
++      await transaction.setLocalTenant(context.tenantId);
++      await transaction.save(value);
++    });
++  }
++
++  public async find(
++    context: TenantContext,
++    id: string,
++  ): Promise<T | null> {
++    assertContext(context);
++    return this.database.transaction(async (transaction) => {
++      await transaction.assertApplicationRole();
++      await transaction.setLocalTenant(context.tenantId);
++      const record = await transaction.find(id);
++      return record?.tenantId === context.tenantId ? record : null;
++    });
++  }
++}
+diff --git a/packages/application/package.json b/packages/application/package.json
+index 476526b..c56ce4b 100644
+--- a/packages/application/package.json
++++ b/packages/application/package.json
+@@ -1,8 +1,12 @@
+ {
+   "name": "@panella/application",
+   "private": true,
+   "version": "0.0.0",
++  "type": "module",
+   "scripts": {
+     "test": "vitest run --passWithNoTests"
++  },
++  "dependencies": {
++    "@panella/domain": "workspace:*"
+   }
+ }
+diff --git a/packages/application/src/authorize-actor.test.ts b/packages/application/src/authorize-actor.test.ts
+new file mode 100644
+index 0000000..d4e6720
+--- /dev/null
++++ b/packages/application/src/authorize-actor.test.ts
+@@ -0,0 +1,323 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  issueAuthenticatedActor,
++  type Actor,
++  type AuthorizationAction,
++  type TenantContext,
++  type WalletGrant,
++} from "@panella/domain";
++
++import {
++  authorizeActor,
++  readAuthorizedObservation,
++  authorizeWalletCpfLookup,
++  type WalletAuthorizationRepository,
++} from "./authorize-actor.js";
++
++interface WalletFixture {
++  readonly id: string;
++  readonly tenantId: string;
++  readonly cpfIndexes: readonly string[];
++  readonly debtorIds?: readonly string[];
++}
++
++class WalletRepositoryFixture implements WalletAuthorizationRepository {
++  public constructor(
++    private readonly wallets: readonly WalletFixture[],
++    private readonly grants: readonly (WalletGrant & {
++      readonly actorId: string;
++    })[],
++  ) {}
++
++  public async findWallet(
++    context: TenantContext,
++    walletId: string,
++  ): Promise<{ readonly id: string; readonly tenantId: string } | null> {
++    return (
++      this.wallets.find(
++        (wallet) =>
++          wallet.id === walletId && wallet.tenantId === context.tenantId,
++      ) ?? null
++    );
++  }
++
++  public async findGrant(
++    context: TenantContext,
++    actorId: string,
++    walletId: string,
++  ): Promise<WalletGrant | null> {
++    return (
++      this.grants.find(
++        (grant) =>
++          grant.actorId === actorId &&
++          grant.walletId === walletId &&
++          grant.tenantId === context.tenantId,
++      ) ?? null
++    );
++  }
++
++  public async containsCpf(
++    context: TenantContext,
++    walletId: string,
++    cpfIndex: string,
++  ): Promise<boolean> {
++    return Boolean(
++      this.wallets.find(
++        (wallet) =>
++          wallet.id === walletId &&
++          wallet.tenantId === context.tenantId &&
++          wallet.cpfIndexes.includes(cpfIndex),
++      ),
++    );
++  }
++
++  public async containsDebtor(
++    context: TenantContext,
++    walletId: string,
++    debtorId: string,
++  ): Promise<boolean> {
++    return Boolean(
++      this.wallets.find(
++        (wallet) =>
++          wallet.id === walletId &&
++          wallet.tenantId === context.tenantId &&
++          wallet.debtorIds?.includes(debtorId),
++      ),
++    );
++  }
++}
++
++const agent: Actor = issueAuthenticatedActor({
++  id: "agent-a",
++  kind: "AGENT",
++  provider: "https://identity.example/realms/acme",
++  subject: "service-account-agent-a",
++  tenantId: "tenant-a",
++  roles: [],
++  walletGrants: [],
++});
++
++const cpfIndexer = {
++  indexCpf: async (cpf: string, tenantId: string) =>
++    `hmac:${tenantId}:${cpf}`,
++};
++
++describe("authorizeActor", () => {
++  it.each(["HUMAN", "AGENT", "SYSTEM"] as const)(
++    "runs runtime authorization for a %s actor",
++    async (kind) => {
++      const action: AuthorizationAction =
++        kind === "SYSTEM" ? "RUN_SOURCE" : "READ_DOSSIER";
++      const roles = kind === "HUMAN" ? ["ANALISTA_DOSSIE" as const] : [];
++      const repository = new WalletRepositoryFixture(
++        [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
++        kind === "HUMAN"
++          ? []
++          : [
++              {
++                actorId: `${kind.toLowerCase()}-a`,
++                tenantId: "tenant-a",
++                walletId: "wallet-a",
++                actions: [action],
++              },
++            ],
++      );
++      const candidate: Actor = issueAuthenticatedActor({
++        ...agent,
++        id: `${kind.toLowerCase()}-a`,
++        kind,
++        roles,
++      });
++
++      await expect(
++        authorizeActor(candidate, "wallet-a", action, repository),
++      ).resolves.toEqual({ allowed: true });
++    },
++  );
++
++  it("denies a wallet that belongs to another tenant before loading grants", async () => {
++    const repository = new WalletRepositoryFixture(
++      [{ id: "wallet-b", tenantId: "tenant-b", cpfIndexes: [] }],
++      [
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-b",
++          walletId: "wallet-b",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    );
++
++    await expect(
++      authorizeActor(agent, "wallet-b", "READ_DOSSIER", repository),
++    ).resolves.toEqual({ allowed: false });
++  });
++});
++
++describe("authorizeWalletCpfLookup", () => {
++  it("rejects a CPF that is not present in the authorized imported wallet", async () => {
++    const repository = new WalletRepositoryFixture(
++      [
++        {
++          id: "wallet-a",
++          tenantId: "tenant-a",
++          cpfIndexes: ["hmac:tenant-a:52998224725"],
++        },
++      ],
++      [
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          walletId: "wallet-a",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    );
++
++    await expect(
++      authorizeWalletCpfLookup(
++        agent,
++        "wallet-a",
++        "11144477735",
++        repository,
++        cpfIndexer,
++      ),
++    ).resolves.toEqual({ allowed: false });
++  });
++
++  it("allows a CPF already present in the authorized imported wallet", async () => {
++    const repository = new WalletRepositoryFixture(
++      [
++        {
++          id: "wallet-a",
++          tenantId: "tenant-a",
++          cpfIndexes: ["hmac:tenant-a:52998224725"],
++        },
++      ],
++      [
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          walletId: "wallet-a",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    );
++
++    await expect(
++      authorizeWalletCpfLookup(
++        agent,
++        "wallet-a",
++        "52998224725",
++        repository,
++        cpfIndexer,
++      ),
++    ).resolves.toEqual({ allowed: true });
++  });
++});
++
++describe("readAuthorizedObservation", () => {
++  it("does not read an observation for an agent without a current wallet grant", async () => {
++    const repository = new WalletRepositoryFixture(
++      [
++        {
++          id: "wallet-a",
++          tenantId: "tenant-a",
++          cpfIndexes: [],
++          debtorIds: ["debtor-a"],
++        },
++      ],
++      [],
++    );
++    let observationRead = false;
++    const observations = {
++      find: async (): Promise<{ readonly debtorId: string }> => {
++        observationRead = true;
++        return { debtorId: "debtor-a" };
++      },
++    };
++
++    await expect(
++      readAuthorizedObservation(
++        agent,
++        "wallet-a",
++        "observation-a",
++        repository,
++        observations,
++      ),
++    ).resolves.toBeNull();
++    expect(observationRead).toBe(false);
++  });
++
++  it("does not return an observation for a debtor outside the authorized wallet", async () => {
++    const repository = new WalletRepositoryFixture(
++      [
++        {
++          id: "wallet-a",
++          tenantId: "tenant-a",
++          cpfIndexes: [],
++          debtorIds: ["debtor-b"],
++        },
++      ],
++      [
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          walletId: "wallet-a",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    );
++    const observations = {
++      find: async (): Promise<{ readonly debtorId: string }> => ({
++        debtorId: "debtor-a",
++      }),
++    };
++
++    await expect(
++      readAuthorizedObservation(
++        agent,
++        "wallet-a",
++        "observation-a",
++        repository,
++        observations,
++      ),
++    ).resolves.toBeNull();
++  });
++
++  it("returns an observation only after wallet authorization and debtor membership", async () => {
++    const repository = new WalletRepositoryFixture(
++      [
++        {
++          id: "wallet-a",
++          tenantId: "tenant-a",
++          cpfIndexes: [],
++          debtorIds: ["debtor-a"],
++        },
++      ],
++      [
++        {
++          actorId: "agent-a",
++          tenantId: "tenant-a",
++          walletId: "wallet-a",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    );
++    const observation = { debtorId: "debtor-a" };
++    const observations = {
++      find: async (): Promise<typeof observation> => observation,
++    };
++
++    await expect(
++      readAuthorizedObservation(
++        agent,
++        "wallet-a",
++        "observation-a",
++        repository,
++        observations,
++      ),
++    ).resolves.toEqual(observation);
++  });
++});
+diff --git a/packages/application/src/authorize-actor.ts b/packages/application/src/authorize-actor.ts
+new file mode 100644
+index 0000000..11d2489
+--- /dev/null
++++ b/packages/application/src/authorize-actor.ts
+@@ -0,0 +1,147 @@
++import {
++  authorize,
++  createTenantContext,
++  type Actor,
++  type AuthorizationAction,
++  type AuthorizationDecision,
++  type TenantContext,
++  type WalletGrant,
++} from "@panella/domain";
++
++export interface WalletAuthorizationRepository {
++  findWallet(
++    context: TenantContext,
++    walletId: string,
++  ): Promise<{ readonly id: string; readonly tenantId: string } | null>;
++  findGrant(
++    context: TenantContext,
++    actorId: string,
++    walletId: string,
++  ): Promise<WalletGrant | null>;
++  containsCpf(
++    context: TenantContext,
++    walletId: string,
++    cpfIndex: string,
++  ): Promise<boolean>;
++  containsDebtor(
++    context: TenantContext,
++    walletId: string,
++    debtorId: string,
++  ): Promise<boolean>;
++}
++
++export interface CpfIndexer {
++  indexCpf(cpf: string, tenantId: string): Promise<string>;
++}
++
++export interface WalletBoundObservation {
++  readonly debtorId: string;
++}
++
++export interface TenantObservationReader<T extends WalletBoundObservation> {
++  find(context: TenantContext, id: string): Promise<T | null>;
++}
++
++async function actorWithRuntimeGrant(
++  actor: Actor,
++  walletId: string,
++  context: TenantContext,
++  repository: WalletAuthorizationRepository,
++): Promise<Actor> {
++  if (actor.kind === "HUMAN") {
++    return actor;
++  }
++
++  const grant = await repository.findGrant(context, actor.id, walletId);
++  return {
++    ...actor,
++    walletGrants: grant
++      ? [
++          {
++            tenantId: grant.tenantId,
++            walletId: grant.walletId,
++            actions: [...grant.actions],
++          },
++        ]
++      : [],
++  };
++}
++
++export async function authorizeActor(
++  actor: Actor,
++  walletId: string,
++  action: AuthorizationAction,
++  repository: WalletAuthorizationRepository,
++): Promise<AuthorizationDecision> {
++  const context = createTenantContext(actor);
++  const wallet = await repository.findWallet(context, walletId);
++  if (!wallet || wallet.tenantId !== context.tenantId) {
++    return { allowed: false };
++  }
++
++  const runtimeActor = await actorWithRuntimeGrant(
++    actor,
++    walletId,
++    context,
++    repository,
++  );
++  return authorize(runtimeActor, walletId, action);
++}
++
++export async function authorizeWalletCpfLookup(
++  actor: Actor,
++  walletId: string,
++  cpf: string,
++  repository: WalletAuthorizationRepository,
++  cpfIndexer: CpfIndexer,
++): Promise<AuthorizationDecision> {
++  const decision = await authorizeActor(
++    actor,
++    walletId,
++    "READ_DOSSIER",
++    repository,
++  );
++  if (!decision.allowed) {
++    return decision;
++  }
++
++  const context = createTenantContext(actor);
++  const cpfIndex = await cpfIndexer.indexCpf(cpf, context.tenantId);
++  return {
++    allowed: await repository.containsCpf(context, walletId, cpfIndex),
++  };
++}
++
++export async function readAuthorizedObservation<
++  T extends WalletBoundObservation,
++>(
++  actor: Actor,
++  walletId: string,
++  observationId: string,
++  authorizationRepository: WalletAuthorizationRepository,
++  observations: TenantObservationReader<T>,
++): Promise<T | null> {
++  const decision = await authorizeActor(
++    actor,
++    walletId,
++    "READ_DOSSIER",
++    authorizationRepository,
++  );
++  if (!decision.allowed) {
++    return null;
++  }
++
++  const context = createTenantContext(actor);
++  const observation = await observations.find(context, observationId);
++  if (!observation) {
++    return null;
++  }
++
++  return (await authorizationRepository.containsDebtor(
++    context,
++    walletId,
++    observation.debtorId,
++  ))
++    ? observation
++    : null;
++}
+diff --git a/packages/domain/src/actor.ts b/packages/domain/src/actor.ts
+index 485b3e3..e1b9d00 100644
+--- a/packages/domain/src/actor.ts
++++ b/packages/domain/src/actor.ts
+@@ -1,8 +1,78 @@
+-export type ActorKind = "HUMAN" | "AGENT" | "SYSTEM";
++import { z } from "zod";
+ 
+-export interface Actor {
+-  readonly kind: ActorKind;
+-  readonly provider: string;
+-  readonly subject: string;
+-  readonly tenantId?: string;
++export const ActorKindSchema = z.enum(["HUMAN", "AGENT", "SYSTEM"]);
++
++export const HumanRoleSchema = z.enum([
++  "ADMIN_TENANT",
++  "ANALISTA_DOSSIE",
++  "OPERADOR_COBRANCA",
++  "ENCARREGADO_LGPD",
++]);
++
++export const AuthorizationActionSchema = z.enum([
++  "READ_DOSSIER",
++  "READ_ACTIONABLE",
++  "READ_AUDIT",
++  "MANAGE_GRANTS",
++  "RUN_SOURCE",
++]);
++
++export const WalletGrantSchema = z
++  .object({
++    tenantId: z.string().min(1),
++    walletId: z.string().min(1),
++    actions: z.array(AuthorizationActionSchema),
++  })
++  .strict();
++
++export const ActorSchema = z
++  .object({
++    id: z.string().min(1),
++    kind: ActorKindSchema,
++    provider: z.string().min(1),
++    subject: z.string().min(1),
++    tenantId: z.string().min(1).optional(),
++    roles: z.array(HumanRoleSchema),
++    walletGrants: z.array(WalletGrantSchema),
++  })
++  .strict();
++
++export type ActorKind = z.infer<typeof ActorKindSchema>;
++export type HumanRole = z.infer<typeof HumanRoleSchema>;
++export type AuthorizationAction = z.infer<
++  typeof AuthorizationActionSchema
++>;
++export type WalletGrant = z.infer<typeof WalletGrantSchema>;
++export type Actor = z.infer<typeof ActorSchema>;
++
++const authenticatedActors = new WeakSet<Actor>();
++
++function freezeActor(actor: Actor): Actor {
++  const walletGrants = actor.walletGrants.map((grant) =>
++    Object.freeze({
++      ...grant,
++      actions: Object.freeze([...grant.actions]),
++    }),
++  );
++  return Object.freeze({
++    ...actor,
++    roles: Object.freeze([...actor.roles]),
++    walletGrants: Object.freeze(walletGrants),
++  }) as Actor;
++}
++
++/**
++ * Registers an immutable actor after its identity provider has verified the
++ * credential and the adapter has resolved it to a tenant-local actor.
++ */
++export function issueAuthenticatedActor(actor: Actor): Actor {
++  const issued = freezeActor(ActorSchema.parse(actor));
++  authenticatedActors.add(issued);
++  return issued;
++}
++
++export function assertAuthenticatedActor(actor: Actor): void {
++  if (!authenticatedActors.has(actor)) {
++    throw new Error("AUTHENTICATED_ACTOR_REQUIRED");
++  }
+ }
+diff --git a/packages/domain/src/authorization.test.ts b/packages/domain/src/authorization.test.ts
+new file mode 100644
+index 0000000..71af1c7
+--- /dev/null
++++ b/packages/domain/src/authorization.test.ts
+@@ -0,0 +1,117 @@
++import { describe, expect, it } from "vitest";
++
++import { issueAuthenticatedActor, type Actor } from "./actor.js";
++import {
++  authorize,
++  createTenantContext,
++  type AuthorizationAction,
++} from "./authorization.js";
++
++const analyst: Actor = {
++  id: "human-analyst",
++  kind: "HUMAN",
++  provider: "https://identity.example/realms/acme",
++  subject: "analyst-subject",
++  tenantId: "tenant-a",
++  roles: ["ANALISTA_DOSSIE"],
++  walletGrants: [],
++};
++
++describe("authorize", () => {
++  it("denies an agent a wallet grant from another tenant", () => {
++    const agent: Actor = {
++      id: "agent-a",
++      kind: "AGENT",
++      provider: "https://identity.example/realms/acme",
++      subject: "service-account-agent-a",
++      tenantId: "tenant-a",
++      roles: [],
++      walletGrants: [
++        {
++          tenantId: "tenant-b",
++          walletId: "wallet-b",
++          actions: ["READ_DOSSIER"],
++        },
++      ],
++    };
++
++    expect(authorize(agent, "wallet-b", "READ_DOSSIER")).toEqual({
++      allowed: false,
++    });
++  });
++
++  it("does not grant dossier access to a tenant administrator", () => {
++    const administrator: Actor = {
++      ...analyst,
++      id: "human-admin",
++      subject: "admin-subject",
++      roles: ["ADMIN_TENANT"],
++    };
++
++    expect(
++      authorize(administrator, "wallet-a", "READ_DOSSIER"),
++    ).toEqual({ allowed: false });
++    expect(
++      authorize(administrator, "wallet-a", "MANAGE_GRANTS"),
++    ).toEqual({ allowed: true });
++  });
++
++  it.each([
++    ["HUMAN", analyst],
++    [
++      "AGENT",
++      {
++        ...analyst,
++        id: "agent-a",
++        kind: "AGENT" as const,
++        roles: [],
++        walletGrants: [
++          {
++            tenantId: "tenant-a",
++            walletId: "wallet-a",
++            actions: ["READ_DOSSIER" as AuthorizationAction],
++          },
++        ],
++      },
++    ],
++    [
++      "SYSTEM",
++      {
++        ...analyst,
++        id: "worker-a",
++        kind: "SYSTEM" as const,
++        roles: [],
++        walletGrants: [
++          {
++            tenantId: "tenant-a",
++            walletId: "wallet-a",
++            actions: ["RUN_SOURCE" as AuthorizationAction],
++          },
++        ],
++      },
++    ],
++  ])("requires a tenant-scoped runtime decision for %s actors", (_kind, actor) => {
++    const action = actor.kind === "SYSTEM" ? "RUN_SOURCE" : "READ_DOSSIER";
++
++    expect(authorize(actor, "wallet-a", action)).toEqual({ allowed: true });
++    expect(authorize(actor, "wallet-without-access", action)).toEqual({
++      allowed: actor.kind === "HUMAN",
++    });
++  });
++});
++
++describe("createTenantContext", () => {
++  it("rejects an actor-shaped value that was not issued after authentication", () => {
++    expect(() => createTenantContext(analyst)).toThrow(
++      "AUTHENTICATED_ACTOR_REQUIRED",
++    );
++  });
++
++  it("rejects an actor without a tenant instead of creating a global context", () => {
++    const unscoped = { ...analyst, tenantId: undefined };
++
++    expect(() => createTenantContext(issueAuthenticatedActor(unscoped))).toThrow(
++      "TENANT_CONTEXT_REQUIRED",
++    );
++  });
++});
+diff --git a/packages/domain/src/authorization.ts b/packages/domain/src/authorization.ts
+new file mode 100644
+index 0000000..0347327
+--- /dev/null
++++ b/packages/domain/src/authorization.ts
+@@ -0,0 +1,106 @@
++import type {
++  Actor,
++  AuthorizationAction,
++  HumanRole,
++  WalletGrant,
++} from "./actor.js";
++import { ActorSchema, assertAuthenticatedActor } from "./actor.js";
++
++export type { AuthorizationAction, WalletGrant } from "./actor.js";
++
++export interface TenantContext {
++  readonly tenantId: string;
++  readonly actor: Actor;
++}
++
++const runtimeTenantContexts = new WeakSet<TenantContext>();
++
++export interface TenantScopedRepository<T> {
++  save(context: TenantContext, value: T): Promise<void>;
++  find(context: TenantContext, id: string): Promise<T | null>;
++}
++
++export interface AuthorizationDecision {
++  readonly allowed: boolean;
++}
++
++const HUMAN_PERMISSIONS: Readonly<
++  Record<HumanRole, readonly AuthorizationAction[]>
++> = {
++  ADMIN_TENANT: ["MANAGE_GRANTS"],
++  ANALISTA_DOSSIE: ["READ_DOSSIER"],
++  OPERADOR_COBRANCA: ["READ_ACTIONABLE"],
++  ENCARREGADO_LGPD: ["READ_AUDIT"],
++};
++
++function grantAllows(
++  actor: Actor,
++  grant: WalletGrant,
++  walletId: string,
++  action: AuthorizationAction,
++): boolean {
++  return (
++    grant.tenantId === actor.tenantId &&
++    grant.walletId === walletId &&
++    grant.actions.includes(action)
++  );
++}
++
++export function authorize(
++  actor: Actor,
++  walletId: string,
++  action: AuthorizationAction,
++): AuthorizationDecision {
++  const parsedActor = ActorSchema.safeParse(actor);
++  if (!parsedActor.success || !parsedActor.data.tenantId) {
++    return { allowed: false };
++  }
++  const runtimeActor = parsedActor.data;
++
++  if (runtimeActor.kind === "HUMAN") {
++    return {
++      allowed: runtimeActor.roles.some((role) =>
++        HUMAN_PERMISSIONS[role].includes(action),
++      ),
++    };
++  }
++
++  return {
++    allowed: runtimeActor.walletGrants.some((grant) =>
++      grantAllows(runtimeActor, grant, walletId, action),
++    ),
++  };
++}
++
++export function createTenantContext(actor: Actor): TenantContext {
++  assertAuthenticatedActor(actor);
++  const parsedActor = ActorSchema.safeParse(actor);
++  if (!parsedActor.success) {
++    throw new Error("INVALID_ACTOR");
++  }
++  if (!parsedActor.data.tenantId) {
++    throw new Error("TENANT_CONTEXT_REQUIRED");
++  }
++
++  const context: TenantContext = Object.freeze({
++    tenantId: parsedActor.data.tenantId,
++    actor: parsedActor.data,
++  });
++  runtimeTenantContexts.add(context);
++  return context;
++}
++
++export function assertTenantContext(context: TenantContext): void {
++  if (!runtimeTenantContexts.has(context)) {
++    throw new Error("TENANT_CONTEXT_REQUIRED");
++  }
++
++  const parsedActor = ActorSchema.safeParse(context.actor);
++  if (
++    !parsedActor.success ||
++    !parsedActor.data.tenantId ||
++    parsedActor.data.tenantId !== context.tenantId
++  ) {
++    throw new Error("INVALID_TENANT_CONTEXT");
++  }
++}
+diff --git a/packages/domain/src/identity.ts b/packages/domain/src/identity.ts
+new file mode 100644
+index 0000000..dd4c580
+--- /dev/null
++++ b/packages/domain/src/identity.ts
+@@ -0,0 +1,10 @@
++import { z } from "zod";
++
++export const IdentityRefSchema = z
++  .object({
++    provider: z.string().min(1),
++    subject: z.string().min(1),
++  })
++  .strict();
++
++export type IdentityRef = z.infer<typeof IdentityRefSchema>;
+diff --git a/packages/domain/src/index.ts b/packages/domain/src/index.ts
+index e4bea6c..aae2b61 100644
+--- a/packages/domain/src/index.ts
++++ b/packages/domain/src/index.ts
+@@ -1,4 +1,31 @@
+ export { Money, SerializedCentsSchema, parseSerializedCents } from "./money.js";
+-export type { Actor, ActorKind } from "./actor.js";
++export {
++  assertAuthenticatedActor,
++  ActorKindSchema,
++  ActorSchema,
++  AuthorizationActionSchema,
++  HumanRoleSchema,
++  issueAuthenticatedActor,
++  WalletGrantSchema,
++} from "./actor.js";
++export type {
++  Actor,
++  ActorKind,
++  AuthorizationAction,
++  HumanRole,
++  WalletGrant,
++} from "./actor.js";
++export {
++  assertTenantContext,
++  authorize,
++  createTenantContext,
++} from "./authorization.js";
++export type {
++  AuthorizationDecision,
++  TenantContext,
++  TenantScopedRepository,
++} from "./authorization.js";
++export { IdentityRefSchema } from "./identity.js";
++export type { IdentityRef } from "./identity.js";
+ export { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
+ export type { SourceStatus } from "./source-status.js";
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 62638d6..fbfc5aa 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -4,43 +4,63 @@ settings:
+   autoInstallPeers: true
+   excludeLinksFromLockfile: false
+ 
+ importers:
+ 
+   .:
+     devDependencies:
+       '@eslint/js':
+         specifier: ^9.35.0
+         version: 9.39.5
++      '@prisma/client':
++        specifier: 6.19.0
++        version: 6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)
+       '@types/node':
+         specifier: ^22.15.0
+         version: 22.20.1
+       eslint:
+         specifier: ^9.35.0
+-        version: 9.39.5
++        version: 9.39.5(jiti@2.7.0)
++      prisma:
++        specifier: 6.19.0
++        version: 6.19.0(typescript@5.9.3)
+       typescript:
+         specifier: ^5.8.3
+         version: 5.9.3
+       typescript-eslint:
+         specifier: ^8.42.0
+-        version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
++        version: 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+       vitest:
+         specifier: ^3.2.4
+-        version: 3.2.7(@types/node@22.20.1)(tsx@4.20.6)
++        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6)
+ 
+   apps/web: {}
+ 
+   apps/worker: {}
+ 
+-  packages/adapters: {}
++  packages/adapters:
++    dependencies:
++      '@panella/domain':
++        specifier: workspace:*
++        version: link:../domain
++      '@prisma/client':
++        specifier: 6.19.0
++        version: 6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)
++      zod:
++        specifier: 4.1.12
++        version: 4.1.12
+ 
+-  packages/application: {}
++  packages/application:
++    dependencies:
++      '@panella/domain':
++        specifier: workspace:*
++        version: link:../domain
+ 
+   packages/contracts:
+     dependencies:
+       '@panella/domain':
+         specifier: workspace:*
+         version: link:../domain
+       zod:
+         specifier: 4.1.12
+         version: 4.1.12
+     devDependencies:
+@@ -422,20 +442,50 @@ packages:
+     resolution: {integrity: sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA==}
+     engines: {node: '>=12.22'}
+ 
+   '@humanwhocodes/retry@0.4.3':
+     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
+     engines: {node: '>=18.18'}
+ 
+   '@jridgewell/sourcemap-codec@1.5.5':
+     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+ 
++  '@prisma/client@6.19.0':
++    resolution: {integrity: sha512-QXFT+N/bva/QI2qoXmjBzL7D6aliPffIwP+81AdTGq0FXDoLxLkWivGMawG8iM5B9BKfxLIXxfWWAF6wbuJU6g==}
++    engines: {node: '>=18.18'}
++    peerDependencies:
++      prisma: '*'
++      typescript: '>=5.1.0'
++    peerDependenciesMeta:
++      prisma:
++        optional: true
++      typescript:
++        optional: true
++
++  '@prisma/config@6.19.0':
++    resolution: {integrity: sha512-zwCayme+NzI/WfrvFEtkFhhOaZb/hI+X8TTjzjJ252VbPxAl2hWHK5NMczmnG9sXck2lsXrxIZuK524E25UNmg==}
++
++  '@prisma/debug@6.19.0':
++    resolution: {integrity: sha512-8hAdGG7JmxrzFcTzXZajlQCidX0XNkMJkpqtfbLV54wC6LSSX6Vni25W/G+nAANwLnZ2TmwkfIuWetA7jJxJFA==}
++
++  '@prisma/engines-version@6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773':
++    resolution: {integrity: sha512-gV7uOBQfAFlWDvPJdQxMT1aSRur3a0EkU/6cfbAC5isV67tKDWUrPauyaHNpB+wN1ebM4A9jn/f4gH+3iHSYSQ==}
++
++  '@prisma/engines@6.19.0':
++    resolution: {integrity: sha512-pMRJ+1S6NVdXoB8QJAPIGpKZevFjxhKt0paCkRDTZiczKb7F4yTgRP8M4JdVkpQwmaD4EoJf6qA+p61godDokw==}
++
++  '@prisma/fetch-engine@6.19.0':
++    resolution: {integrity: sha512-OOx2Lda0DGrZ1rodADT06ZGqHzr7HY7LNMaFE2Vp8dp146uJld58sRuasdX0OiwpHgl8SqDTUKHNUyzEq7pDdQ==}
++
++  '@prisma/get-platform@6.19.0':
++    resolution: {integrity: sha512-ym85WDO2yDhC3fIXHWYpG3kVMBA49cL1XD2GCsCF8xbwoy2OkDQY44gEbAt2X46IQ4Apq9H6g0Ex1iFfPqEkHA==}
++
+   '@rollup/rollup-android-arm-eabi@4.62.3':
+     resolution: {integrity: sha512-c0wdcekXtQvvn5Tsrk/+op/gUArrbWaFduBnTLP2l1cKLSQs4diMWjJw3m6A0DdzT8dAAX95KpkJ3qynCePbmw==}
+     cpu: [arm]
+     os: [android]
+ 
+   '@rollup/rollup-android-arm64@4.62.3':
+     resolution: {integrity: sha512-3YjElDdWN+qXAFbJ/CzPV+0wspLqh54k/I6GfdYtEJRqg7buSgc1yPM3B+93j1M4neobtkATHZTmxK2AMVGfnA==}
+     cpu: [arm64]
+     os: [android]
+ 
+@@ -560,20 +610,23 @@ packages:
+   '@rollup/rollup-win32-x64-gnu@4.62.3':
+     resolution: {integrity: sha512-vp7N084ew/odXn2gi/mzm9mUkQu9l6AiN6dt4IeUM2Uvm9o+cVmP+YkqbMOteLbiGgqBBlJZjIMYVCfOOIVbVQ==}
+     cpu: [x64]
+     os: [win32]
+ 
+   '@rollup/rollup-win32-x64-msvc@4.62.3':
+     resolution: {integrity: sha512-MOG/3gTOn4Fwf574RVOaY61I5o6P90legkFADiTyn1hyjNydT+cerU2rLUwPdZkKKyJ+iT+K9p7WXK4LM1Ka6g==}
+     cpu: [x64]
+     os: [win32]
+ 
++  '@standard-schema/spec@1.1.0':
++    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
++
+   '@types/chai@5.2.3':
+     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
+ 
+   '@types/deep-eql@4.0.2':
+     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
+ 
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
+   '@types/json-schema@7.0.15':
+@@ -701,70 +754,116 @@ packages:
+     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
+     engines: {node: 18 || 20 || >=22}
+ 
+   brace-expansion@1.1.16:
+     resolution: {integrity: sha512-IDw48K2/2kRkg9LdJxurvq3lV3aBgq0REY89duEqFRthjlPdXHKMj7EnQOXVckxzgisinf3nHfrcE2FufFLXMw==}
+ 
+   brace-expansion@5.0.8:
+     resolution: {integrity: sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==}
+     engines: {node: 20 || >=22}
+ 
++  c12@3.1.0:
++    resolution: {integrity: sha512-uWoS8OU1MEIsOv8p/5a82c3H31LsWVR5qiyXVfBNOzfffjUWtPnhAb4BYI2uG2HfGmZmFjCtui5XNWaps+iFuw==}
++    peerDependencies:
++      magicast: ^0.3.5
++    peerDependenciesMeta:
++      magicast:
++        optional: true
++
+   cac@6.7.14:
+     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
+     engines: {node: '>=8'}
+ 
+   callsites@3.1.0:
+     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
+     engines: {node: '>=6'}
+ 
+   chai@5.3.3:
+     resolution: {integrity: sha512-4zNhdJD/iOjSH0A05ea+Ke6MU5mmpQcbQsSOkgdaUMJ9zTlDTD/GYlwohmIE2u0gaxHYiVHEn1Fw9mZ/ktJWgw==}
+     engines: {node: '>=18'}
+ 
+   chalk@4.1.2:
+     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
+     engines: {node: '>=10'}
+ 
+   check-error@2.1.3:
+     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
+     engines: {node: '>= 16'}
+ 
++  chokidar@4.0.3:
++    resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
++    engines: {node: '>= 14.16.0'}
++
++  citty@0.1.6:
++    resolution: {integrity: sha512-tskPPKEs8D2KPafUypv2gxwJP8h/OaJmC82QQGGDQcHvXX43xF2VDACcJVmZ0EuSxkpO9Kc4MlrA3q0+FG58AQ==}
++
++  citty@0.2.2:
++    resolution: {integrity: sha512-+6vJA3L98yv+IdfKGZHBNiGW5KHn22e/JwID0Strsz8h4S/csAu/OuICwxrg44k5MRiZHWIo8XXuJgQTriRP4w==}
++
+   color-convert@2.0.1:
+     resolution: {integrity: sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ==}
+     engines: {node: '>=7.0.0'}
+ 
+   color-name@1.1.4:
+     resolution: {integrity: sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA==}
+ 
+   concat-map@0.0.1:
+     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
+ 
++  confbox@0.2.4:
++    resolution: {integrity: sha512-ysOGlgTFbN2/Y6Cg3Iye8YKulHw+R2fNXHrgSmXISQdMnomY6eNDprVdW9R5xBguEqI954+S6709UyiO7B+6OQ==}
++
++  consola@3.4.2:
++    resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
++    engines: {node: ^14.18.0 || >=16.10.0}
++
+   cross-spawn@7.0.6:
+     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
+     engines: {node: '>= 8'}
+ 
+   debug@4.4.3:
+     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
+     engines: {node: '>=6.0'}
+     peerDependencies:
+       supports-color: '*'
+     peerDependenciesMeta:
+       supports-color:
+         optional: true
+ 
+   deep-eql@5.0.2:
+     resolution: {integrity: sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==}
+     engines: {node: '>=6'}
+ 
+   deep-is@0.1.4:
+     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
+ 
++  deepmerge-ts@7.1.5:
++    resolution: {integrity: sha512-HOJkrhaYsweh+W+e74Yn7YStZOilkoPb6fycpwNLKzSPtruFs48nYis0zy5yJz1+ktUhHxoRDJ27RQAWLIJVJw==}
++    engines: {node: '>=16.0.0'}
++
++  defu@6.1.7:
++    resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
++
++  destr@2.0.5:
++    resolution: {integrity: sha512-ugFTXCtDZunbzasqBxrK93Ik/DRYsO6S/fedkWEMKqt04xZ4csmnmwGDBAb07QWNaGMAmnTIemsYZCksjATwsA==}
++
++  dotenv@16.6.1:
++    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
++    engines: {node: '>=12'}
++
++  effect@3.18.4:
++    resolution: {integrity: sha512-b1LXQJLe9D11wfnOKAk3PKxuqYshQ0Heez+y5pnkd3jLj1yx9QhM72zZ9uUrOQyNvrs2GZZd/3maL0ZV18YuDA==}
++
++  empathic@2.0.0:
++    resolution: {integrity: sha512-i6UzDscO/XfAcNYD75CfICkmfLedpyPDdozrLMmQc5ORaQcdMoc21OnlEylMIqI7U8eniKrPMxxtj8k0vhmJhA==}
++    engines: {node: '>=14'}
++
+   es-module-lexer@1.7.0:
+     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
+ 
+   esbuild@0.25.12:
+     resolution: {integrity: sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==}
+     engines: {node: '>=18'}
+     hasBin: true
+ 
+   esbuild@0.28.1:
+     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
+@@ -821,20 +920,27 @@ packages:
+     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
+ 
+   esutils@2.0.3:
+     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
+     engines: {node: '>=0.10.0'}
+ 
+   expect-type@1.4.0:
+     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
+     engines: {node: '>=12.0.0'}
+ 
++  exsolve@1.1.1:
++    resolution: {integrity: sha512-9U/jZUgjnSGyntRr6y5Muu1MJcwFl6kPu7k8qLF0IMNfLqvw0NZ4nnVDq0RVoZ0RvCyumib4Ez3KYrVfilrw+g==}
++
++  fast-check@3.23.2:
++    resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
++    engines: {node: '>=8.0.0'}
++
+   fast-deep-equal@3.1.3:
+     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+ 
+   fast-json-stable-stringify@2.1.0:
+     resolution: {integrity: sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==}
+ 
+   fast-levenshtein@2.0.6:
+     resolution: {integrity: sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw==}
+ 
+   fdir@6.5.0:
+@@ -862,20 +968,24 @@ packages:
+     resolution: {integrity: sha512-/zipXxyO6rGvuNGDiULY9MvEGSkb2gaG4GGH4ygMi0ZZzyMHdUZBmntJmx5x1G2VuPytCwGN4xsJP6cw+sK+vQ==}
+ 
+   fsevents@2.3.3:
+     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
+     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+     os: [darwin]
+ 
+   get-tsconfig@4.14.0:
+     resolution: {integrity: sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA==}
+ 
++  giget@2.0.0:
++    resolution: {integrity: sha512-L5bGsVkxJbJgdnwyuheIunkGatUF/zssUoxxjACCseZYAVbaqdh9Tsmmlkl8vYan09H7sbvKt4pS8GqKLBrEzA==}
++    hasBin: true
++
+   glob-parent@6.0.2:
+     resolution: {integrity: sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A==}
+     engines: {node: '>=10.13.0'}
+ 
+   globals@14.0.0:
+     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
+     engines: {node: '>=18'}
+ 
+   has-flag@4.0.0:
+     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
+@@ -901,20 +1011,24 @@ packages:
+     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
+     engines: {node: '>=0.10.0'}
+ 
+   is-glob@4.0.3:
+     resolution: {integrity: sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==}
+     engines: {node: '>=0.10.0'}
+ 
+   isexe@2.0.0:
+     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
+ 
++  jiti@2.7.0:
++    resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
++    hasBin: true
++
+   js-tokens@9.0.1:
+     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
+ 
+   js-yaml@4.3.0:
+     resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
+     hasBin: true
+ 
+   json-buffer@3.0.1:
+     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
+ 
+@@ -955,20 +1069,31 @@ packages:
+     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
+ 
+   nanoid@3.3.16:
+     resolution: {integrity: sha512-bzlKTyNJ7+LdGIIwy8ijFpIqEQIvafahV7eYykJ8Cvh42EdJeODoJ6gUJXpQJvej1BddH8OqTXZNE/KfbWAu8Q==}
+     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+     hasBin: true
+ 
+   natural-compare@1.4.0:
+     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
+ 
++  node-fetch-native@1.6.7:
++    resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
++
++  nypm@0.6.9:
++    resolution: {integrity: sha512-zxlE2yvSWZWmHcNdT3+5zV2lrCogeE9YOklHrR3dFjqutq5wO7GFDYLFDRXLsYnJzwvy/im9fYoxePvS0VTW0w==}
++    engines: {node: '>=18'}
++    hasBin: true
++
++  ohash@2.0.11:
++    resolution: {integrity: sha512-RdR9FQrFwNBNXAr4GixM8YaRZRJ5PUWbKYbE5eOsrwAjJW0q2REGcf79oYPsLyskQCZG1PLN+S/K1V00joZAoQ==}
++
+   optionator@0.9.4:
+     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
+     engines: {node: '>= 0.8.0'}
+ 
+   p-limit@3.1.0:
+     resolution: {integrity: sha512-TYOanM3wGwNGsZN2cVTYPArw454xnXj5qmWF1bEoAc4+cU/ol7GVh7odevjp1FNHduHc3KZMcFduxU5Xc6uJRQ==}
+     engines: {node: '>=10'}
+ 
+   p-locate@5.0.0:
+     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
+@@ -986,39 +1111,65 @@ packages:
+     resolution: {integrity: sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==}
+     engines: {node: '>=8'}
+ 
+   pathe@2.0.3:
+     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
+ 
+   pathval@2.0.1:
+     resolution: {integrity: sha512-//nshmD55c46FuFw26xV/xFAaB5HF9Xdap7HJBBnrKdAd6/GxDBaNA1870O79+9ueg61cZLSVc+OaFlfmObYVQ==}
+     engines: {node: '>= 14.16'}
+ 
++  perfect-debounce@1.0.0:
++    resolution: {integrity: sha512-xCy9V055GLEqoFaHoC1SoLIaLmWctgCUaBaWxDZ7/Zx4CTyX7cJQLJOok/orfjZAh9kEYpjJa4d0KcJmCbctZA==}
++
+   picocolors@1.1.1:
+     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
+ 
+   picomatch@4.0.5:
+     resolution: {integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==}
+     engines: {node: '>=12'}
+ 
++  pkg-types@2.3.1:
++    resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
++
+   postcss@8.5.24:
+     resolution: {integrity: sha512-8RyVklq0owXUTa4xlpzu4l9AaVKIdQvAcOHZWaMh98HgySsUtxRVf/chRe3dsSLqb6i40BzGRzEUddRaI+9TSw==}
+     engines: {node: ^10 || ^12 || >=14}
+ 
+   prelude-ls@1.2.1:
+     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
+     engines: {node: '>= 0.8.0'}
+ 
++  prisma@6.19.0:
++    resolution: {integrity: sha512-F3eX7K+tWpkbhl3l4+VkFtrwJlLXbAM+f9jolgoUZbFcm1DgHZ4cq9AgVEgUym2au5Ad/TDLN8lg83D+M10ycw==}
++    engines: {node: '>=18.18'}
++    hasBin: true
++    peerDependencies:
++      typescript: '>=5.1.0'
++    peerDependenciesMeta:
++      typescript:
++        optional: true
++
+   punycode@2.3.1:
+     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
+     engines: {node: '>=6'}
+ 
++  pure-rand@6.1.0:
++    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
++
++  rc9@2.1.2:
++    resolution: {integrity: sha512-btXCnMmRIBINM2LDZoEmOogIZU7Qe7zn4BpomSKZ/ykbLObuBdvG+mFq11DL6fjH1DRwHhrlgtYWG96bJiC7Cg==}
++
++  readdirp@4.1.2:
++    resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
++    engines: {node: '>= 14.18.0'}
++
+   resolve-from@4.0.0:
+     resolution: {integrity: sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==}
+     engines: {node: '>=4'}
+ 
+   resolve-pkg-maps@1.0.0:
+     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
+ 
+   rollup@4.62.3:
+     resolution: {integrity: sha512-Gu0c0iH9FzgX1L1t7ByIbbS3Vmdz+6KHm/EsqmmC71gUQ82yvZRkTK6XzrFObSka91WUVdynqp6nsfilzr5k6Q==}
+     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
+@@ -1060,20 +1211,24 @@ packages:
+   supports-color@7.2.0:
+     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
+     engines: {node: '>=8'}
+ 
+   tinybench@2.9.0:
+     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
+ 
+   tinyexec@0.3.2:
+     resolution: {integrity: sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA==}
+ 
++  tinyexec@1.2.4:
++    resolution: {integrity: sha512-SHf/r48b7vOrjve9PxJo3MN5v5yuyjHvdUcrQffT3WXMUfnGmHDVbC4k3sHJaJTgZCwpUplIaAo5ANtMyp3YHg==}
++    engines: {node: '>=18'}
++
+   tinyglobby@0.2.17:
+     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
+     engines: {node: '>=12.0.0'}
+ 
+   tinypool@1.1.1:
+     resolution: {integrity: sha512-Zba82s87IFq9A9XmjiX5uZA/ARWDrB03OHlq+Vw1fSdt0I+4/Kutwy8BP4Y/y/aORMo61FQ0vIb5j44vSo5Pkg==}
+     engines: {node: ^18.0.0 || >=20.0.0}
+ 
+   tinyrainbow@2.0.0:
+     resolution: {integrity: sha512-op4nsTR47R6p0vMUUoYl/a+ljLFVtlfaXkLQmqfLR1qHma1h/ysYk4hEXZ880bf2CYgTskvTa/e196Vd5dDQXw==}
+@@ -1361,23 +1516,23 @@ snapshots:
+ 
+   '@esbuild/win32-ia32@0.28.1':
+     optional: true
+ 
+   '@esbuild/win32-x64@0.25.12':
+     optional: true
+ 
+   '@esbuild/win32-x64@0.28.1':
+     optional: true
+ 
+-  '@eslint-community/eslint-utils@4.10.1(eslint@9.39.5)':
++  '@eslint-community/eslint-utils@4.10.1(eslint@9.39.5(jiti@2.7.0))':
+     dependencies:
+-      eslint: 9.39.5
++      eslint: 9.39.5(jiti@2.7.0)
+       eslint-visitor-keys: 3.4.3
+ 
+   '@eslint-community/regexpp@4.12.2': {}
+ 
+   '@eslint/config-array@0.21.2':
+     dependencies:
+       '@eslint/object-schema': 2.1.7
+       debug: 4.4.3
+       minimatch: 3.1.5
+     transitivePeerDependencies:
+@@ -1425,20 +1580,55 @@ snapshots:
+       '@humanwhocodes/retry': 0.4.3
+ 
+   '@humanfs/types@0.15.0': {}
+ 
+   '@humanwhocodes/module-importer@1.0.1': {}
+ 
+   '@humanwhocodes/retry@0.4.3': {}
+ 
+   '@jridgewell/sourcemap-codec@1.5.5': {}
+ 
++  '@prisma/client@6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)':
++    optionalDependencies:
++      prisma: 6.19.0(typescript@5.9.3)
++      typescript: 5.9.3
++
++  '@prisma/config@6.19.0':
++    dependencies:
++      c12: 3.1.0
++      deepmerge-ts: 7.1.5
++      effect: 3.18.4
++      empathic: 2.0.0
++    transitivePeerDependencies:
++      - magicast
++
++  '@prisma/debug@6.19.0': {}
++
++  '@prisma/engines-version@6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773': {}
++
++  '@prisma/engines@6.19.0':
++    dependencies:
++      '@prisma/debug': 6.19.0
++      '@prisma/engines-version': 6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773
++      '@prisma/fetch-engine': 6.19.0
++      '@prisma/get-platform': 6.19.0
++
++  '@prisma/fetch-engine@6.19.0':
++    dependencies:
++      '@prisma/debug': 6.19.0
++      '@prisma/engines-version': 6.19.0-26.2ba551f319ab1df4bc874a89965d8b3641056773
++      '@prisma/get-platform': 6.19.0
++
++  '@prisma/get-platform@6.19.0':
++    dependencies:
++      '@prisma/debug': 6.19.0
++
+   '@rollup/rollup-android-arm-eabi@4.62.3':
+     optional: true
+ 
+   '@rollup/rollup-android-arm64@4.62.3':
+     optional: true
+ 
+   '@rollup/rollup-darwin-arm64@4.62.3':
+     optional: true
+ 
+   '@rollup/rollup-darwin-x64@4.62.3':
+@@ -1500,59 +1690,61 @@ snapshots:
+ 
+   '@rollup/rollup-win32-ia32-msvc@4.62.3':
+     optional: true
+ 
+   '@rollup/rollup-win32-x64-gnu@4.62.3':
+     optional: true
+ 
+   '@rollup/rollup-win32-x64-msvc@4.62.3':
+     optional: true
+ 
++  '@standard-schema/spec@1.1.0': {}
++
+   '@types/chai@5.2.3':
+     dependencies:
+       '@types/deep-eql': 4.0.2
+       assertion-error: 2.0.1
+ 
+   '@types/deep-eql@4.0.2': {}
+ 
+   '@types/estree@1.0.9': {}
+ 
+   '@types/json-schema@7.0.15': {}
+ 
+   '@types/node@22.20.1':
+     dependencies:
+       undici-types: 6.21.0
+ 
+-  '@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)':
++  '@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)':
+     dependencies:
+       '@eslint-community/regexpp': 4.12.2
+-      '@typescript-eslint/parser': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
++      '@typescript-eslint/parser': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+       '@typescript-eslint/scope-manager': 8.65.0
+-      '@typescript-eslint/type-utils': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+-      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
++      '@typescript-eslint/type-utils': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
++      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+       '@typescript-eslint/visitor-keys': 8.65.0
+-      eslint: 9.39.5
++      eslint: 9.39.5(jiti@2.7.0)
+       ignore: 7.0.6
+       natural-compare: 1.4.0
+       ts-api-utils: 2.5.0(typescript@5.9.3)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+-  '@typescript-eslint/parser@8.65.0(eslint@9.39.5)(typescript@5.9.3)':
++  '@typescript-eslint/parser@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)':
+     dependencies:
+       '@typescript-eslint/scope-manager': 8.65.0
+       '@typescript-eslint/types': 8.65.0
+       '@typescript-eslint/typescript-estree': 8.65.0(typescript@5.9.3)
+       '@typescript-eslint/visitor-keys': 8.65.0
+       debug: 4.4.3
+-      eslint: 9.39.5
++      eslint: 9.39.5(jiti@2.7.0)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+   '@typescript-eslint/project-service@8.65.0(typescript@5.9.3)':
+     dependencies:
+       '@typescript-eslint/tsconfig-utils': 8.65.0(typescript@5.9.3)
+       '@typescript-eslint/types': 8.65.0
+       debug: 4.4.3
+       typescript: 5.9.3
+@@ -1561,27 +1753,27 @@ snapshots:
+ 
+   '@typescript-eslint/scope-manager@8.65.0':
+     dependencies:
+       '@typescript-eslint/types': 8.65.0
+       '@typescript-eslint/visitor-keys': 8.65.0
+ 
+   '@typescript-eslint/tsconfig-utils@8.65.0(typescript@5.9.3)':
+     dependencies:
+       typescript: 5.9.3
+ 
+-  '@typescript-eslint/type-utils@8.65.0(eslint@9.39.5)(typescript@5.9.3)':
++  '@typescript-eslint/type-utils@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)':
+     dependencies:
+       '@typescript-eslint/types': 8.65.0
+       '@typescript-eslint/typescript-estree': 8.65.0(typescript@5.9.3)
+-      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
++      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+       debug: 4.4.3
+-      eslint: 9.39.5
++      eslint: 9.39.5(jiti@2.7.0)
+       ts-api-utils: 2.5.0(typescript@5.9.3)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+   '@typescript-eslint/types@8.65.0': {}
+ 
+   '@typescript-eslint/typescript-estree@8.65.0(typescript@5.9.3)':
+     dependencies:
+       '@typescript-eslint/project-service': 8.65.0(typescript@5.9.3)
+@@ -1590,51 +1782,51 @@ snapshots:
+       '@typescript-eslint/visitor-keys': 8.65.0
+       debug: 4.4.3
+       minimatch: 10.2.6
+       semver: 7.8.5
+       tinyglobby: 0.2.17
+       ts-api-utils: 2.5.0(typescript@5.9.3)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+-  '@typescript-eslint/utils@8.65.0(eslint@9.39.5)(typescript@5.9.3)':
++  '@typescript-eslint/utils@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)':
+     dependencies:
+-      '@eslint-community/eslint-utils': 4.10.1(eslint@9.39.5)
++      '@eslint-community/eslint-utils': 4.10.1(eslint@9.39.5(jiti@2.7.0))
+       '@typescript-eslint/scope-manager': 8.65.0
+       '@typescript-eslint/types': 8.65.0
+       '@typescript-eslint/typescript-estree': 8.65.0(typescript@5.9.3)
+-      eslint: 9.39.5
++      eslint: 9.39.5(jiti@2.7.0)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+   '@typescript-eslint/visitor-keys@8.65.0':
+     dependencies:
+       '@typescript-eslint/types': 8.65.0
+       eslint-visitor-keys: 5.0.1
+ 
+   '@vitest/expect@3.2.7':
+     dependencies:
+       '@types/chai': 5.2.3
+       '@vitest/spy': 3.2.7
+       '@vitest/utils': 3.2.7
+       chai: 5.3.3
+       tinyrainbow: 2.0.0
+ 
+-  '@vitest/mocker@3.2.7(vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6))':
++  '@vitest/mocker@3.2.7(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6))':
+     dependencies:
+       '@vitest/spy': 3.2.7
+       estree-walker: 3.0.3
+       magic-string: 0.30.21
+     optionalDependencies:
+-      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
++      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6)
+ 
+   '@vitest/pretty-format@3.2.7':
+     dependencies:
+       tinyrainbow: 2.0.0
+ 
+   '@vitest/runner@3.2.7':
+     dependencies:
+       '@vitest/utils': 3.2.7
+       pathe: 2.0.3
+       strip-literal: 3.1.0
+@@ -1682,61 +1874,105 @@ snapshots:
+ 
+   brace-expansion@1.1.16:
+     dependencies:
+       balanced-match: 1.0.2
+       concat-map: 0.0.1
+ 
+   brace-expansion@5.0.8:
+     dependencies:
+       balanced-match: 4.0.4
+ 
++  c12@3.1.0:
++    dependencies:
++      chokidar: 4.0.3
++      confbox: 0.2.4
++      defu: 6.1.7
++      dotenv: 16.6.1
++      exsolve: 1.1.1
++      giget: 2.0.0
++      jiti: 2.7.0
++      ohash: 2.0.11
++      pathe: 2.0.3
++      perfect-debounce: 1.0.0
++      pkg-types: 2.3.1
++      rc9: 2.1.2
++
+   cac@6.7.14: {}
+ 
+   callsites@3.1.0: {}
+ 
+   chai@5.3.3:
+     dependencies:
+       assertion-error: 2.0.1
+       check-error: 2.1.3
+       deep-eql: 5.0.2
+       loupe: 3.2.1
+       pathval: 2.0.1
+ 
+   chalk@4.1.2:
+     dependencies:
+       ansi-styles: 4.3.0
+       supports-color: 7.2.0
+ 
+   check-error@2.1.3: {}
+ 
++  chokidar@4.0.3:
++    dependencies:
++      readdirp: 4.1.2
++
++  citty@0.1.6:
++    dependencies:
++      consola: 3.4.2
++
++  citty@0.2.2: {}
++
+   color-convert@2.0.1:
+     dependencies:
+       color-name: 1.1.4
+ 
+   color-name@1.1.4: {}
+ 
+   concat-map@0.0.1: {}
+ 
++  confbox@0.2.4: {}
++
++  consola@3.4.2: {}
++
+   cross-spawn@7.0.6:
+     dependencies:
+       path-key: 3.1.1
+       shebang-command: 2.0.0
+       which: 2.0.2
+ 
+   debug@4.4.3:
+     dependencies:
+       ms: 2.1.3
+ 
+   deep-eql@5.0.2: {}
+ 
+   deep-is@0.1.4: {}
+ 
++  deepmerge-ts@7.1.5: {}
++
++  defu@6.1.7: {}
++
++  destr@2.0.5: {}
++
++  dotenv@16.6.1: {}
++
++  effect@3.18.4:
++    dependencies:
++      '@standard-schema/spec': 1.1.0
++      fast-check: 3.23.2
++
++  empathic@2.0.0: {}
++
+   es-module-lexer@1.7.0: {}
+ 
+   esbuild@0.25.12:
+     optionalDependencies:
+       '@esbuild/aix-ppc64': 0.25.12
+       '@esbuild/android-arm': 0.25.12
+       '@esbuild/android-arm64': 0.25.12
+       '@esbuild/android-x64': 0.25.12
+       '@esbuild/darwin-arm64': 0.25.12
+       '@esbuild/darwin-x64': 0.25.12
+@@ -1796,23 +2032,23 @@ snapshots:
+     dependencies:
+       esrecurse: 4.3.0
+       estraverse: 5.3.0
+ 
+   eslint-visitor-keys@3.4.3: {}
+ 
+   eslint-visitor-keys@4.2.1: {}
+ 
+   eslint-visitor-keys@5.0.1: {}
+ 
+-  eslint@9.39.5:
++  eslint@9.39.5(jiti@2.7.0):
+     dependencies:
+-      '@eslint-community/eslint-utils': 4.10.1(eslint@9.39.5)
++      '@eslint-community/eslint-utils': 4.10.1(eslint@9.39.5(jiti@2.7.0))
+       '@eslint-community/regexpp': 4.12.2
+       '@eslint/config-array': 0.21.2
+       '@eslint/config-helpers': 0.4.2
+       '@eslint/core': 0.17.0
+       '@eslint/eslintrc': 3.3.6
+       '@eslint/js': 9.39.5
+       '@eslint/plugin-kit': 0.4.1
+       '@humanfs/node': 0.16.8
+       '@humanwhocodes/module-importer': 1.0.1
+       '@humanwhocodes/retry': 0.4.3
+@@ -1832,20 +2068,22 @@ snapshots:
+       find-up: 5.0.0
+       glob-parent: 6.0.2
+       ignore: 5.3.2
+       imurmurhash: 0.1.4
+       is-glob: 4.0.3
+       json-stable-stringify-without-jsonify: 1.0.1
+       lodash.merge: 4.6.2
+       minimatch: 3.1.5
+       natural-compare: 1.4.0
+       optionator: 0.9.4
++    optionalDependencies:
++      jiti: 2.7.0
+     transitivePeerDependencies:
+       - supports-color
+ 
+   espree@10.4.0:
+     dependencies:
+       acorn: 8.18.0
+       acorn-jsx: 5.3.2(acorn@8.18.0)
+       eslint-visitor-keys: 4.2.1
+ 
+   esquery@1.7.0:
+@@ -1859,20 +2097,26 @@ snapshots:
+   estraverse@5.3.0: {}
+ 
+   estree-walker@3.0.3:
+     dependencies:
+       '@types/estree': 1.0.9
+ 
+   esutils@2.0.3: {}
+ 
+   expect-type@1.4.0: {}
+ 
++  exsolve@1.1.1: {}
++
++  fast-check@3.23.2:
++    dependencies:
++      pure-rand: 6.1.0
++
+   fast-deep-equal@3.1.3: {}
+ 
+   fast-json-stable-stringify@2.1.0: {}
+ 
+   fast-levenshtein@2.0.6: {}
+ 
+   fdir@6.5.0(picomatch@4.0.5):
+     optionalDependencies:
+       picomatch: 4.0.5
+ 
+@@ -1892,20 +2136,29 @@ snapshots:
+ 
+   flatted@3.4.3: {}
+ 
+   fsevents@2.3.3:
+     optional: true
+ 
+   get-tsconfig@4.14.0:
+     dependencies:
+       resolve-pkg-maps: 1.0.0
+ 
++  giget@2.0.0:
++    dependencies:
++      citty: 0.1.6
++      consola: 3.4.2
++      defu: 6.1.7
++      node-fetch-native: 1.6.7
++      nypm: 0.6.9
++      pathe: 2.0.3
++
+   glob-parent@6.0.2:
+     dependencies:
+       is-glob: 4.0.3
+ 
+   globals@14.0.0: {}
+ 
+   has-flag@4.0.0: {}
+ 
+   ignore@5.3.2: {}
+ 
+@@ -1919,20 +2172,22 @@ snapshots:
+   imurmurhash@0.1.4: {}
+ 
+   is-extglob@2.1.1: {}
+ 
+   is-glob@4.0.3:
+     dependencies:
+       is-extglob: 2.1.1
+ 
+   isexe@2.0.0: {}
+ 
++  jiti@2.7.0: {}
++
+   js-tokens@9.0.1: {}
+ 
+   js-yaml@4.3.0:
+     dependencies:
+       argparse: 2.0.1
+ 
+   json-buffer@3.0.1: {}
+ 
+   json-schema-traverse@0.4.1: {}
+ 
+@@ -1966,20 +2221,30 @@ snapshots:
+   minimatch@3.1.5:
+     dependencies:
+       brace-expansion: 1.1.16
+ 
+   ms@2.1.3: {}
+ 
+   nanoid@3.3.16: {}
+ 
+   natural-compare@1.4.0: {}
+ 
++  node-fetch-native@1.6.7: {}
++
++  nypm@0.6.9:
++    dependencies:
++      citty: 0.2.2
++      pathe: 2.0.3
++      tinyexec: 1.2.4
++
++  ohash@2.0.11: {}
++
+   optionator@0.9.4:
+     dependencies:
+       deep-is: 0.1.4
+       fast-levenshtein: 2.0.6
+       levn: 0.4.1
+       prelude-ls: 1.2.1
+       type-check: 0.4.0
+       word-wrap: 1.2.5
+ 
+   p-limit@3.1.0:
+@@ -1995,34 +2260,60 @@ snapshots:
+       callsites: 3.1.0
+ 
+   path-exists@4.0.0: {}
+ 
+   path-key@3.1.1: {}
+ 
+   pathe@2.0.3: {}
+ 
+   pathval@2.0.1: {}
+ 
++  perfect-debounce@1.0.0: {}
++
+   picocolors@1.1.1: {}
+ 
+   picomatch@4.0.5: {}
+ 
++  pkg-types@2.3.1:
++    dependencies:
++      confbox: 0.2.4
++      exsolve: 1.1.1
++      pathe: 2.0.3
++
+   postcss@8.5.24:
+     dependencies:
+       nanoid: 3.3.16
+       picocolors: 1.1.1
+       source-map-js: 1.2.1
+ 
+   prelude-ls@1.2.1: {}
+ 
++  prisma@6.19.0(typescript@5.9.3):
++    dependencies:
++      '@prisma/config': 6.19.0
++      '@prisma/engines': 6.19.0
++    optionalDependencies:
++      typescript: 5.9.3
++    transitivePeerDependencies:
++      - magicast
++
+   punycode@2.3.1: {}
+ 
++  pure-rand@6.1.0: {}
++
++  rc9@2.1.2:
++    dependencies:
++      defu: 6.1.7
++      destr: 2.0.5
++
++  readdirp@4.1.2: {}
++
+   resolve-from@4.0.0: {}
+ 
+   resolve-pkg-maps@1.0.0: {}
+ 
+   rollup@4.62.3:
+     dependencies:
+       '@types/estree': 1.0.9
+     optionalDependencies:
+       '@rollup/rollup-android-arm-eabi': 4.62.3
+       '@rollup/rollup-android-arm64': 4.62.3
+@@ -2074,20 +2365,22 @@ snapshots:
+       js-tokens: 9.0.1
+ 
+   supports-color@7.2.0:
+     dependencies:
+       has-flag: 4.0.0
+ 
+   tinybench@2.9.0: {}
+ 
+   tinyexec@0.3.2: {}
+ 
++  tinyexec@1.2.4: {}
++
+   tinyglobby@0.2.17:
+     dependencies:
+       fdir: 6.5.0(picomatch@4.0.5)
+       picomatch: 4.0.5
+ 
+   tinypool@1.1.1: {}
+ 
+   tinyrainbow@2.0.0: {}
+ 
+   tinyspy@4.0.4: {}
+@@ -2100,97 +2393,98 @@ snapshots:
+     dependencies:
+       esbuild: 0.25.12
+       get-tsconfig: 4.14.0
+     optionalDependencies:
+       fsevents: 2.3.3
+ 
+   type-check@0.4.0:
+     dependencies:
+       prelude-ls: 1.2.1
+ 
+-  typescript-eslint@8.65.0(eslint@9.39.5)(typescript@5.9.3):
++  typescript-eslint@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3):
+     dependencies:
+-      '@typescript-eslint/eslint-plugin': 8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)
+-      '@typescript-eslint/parser': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
++      '@typescript-eslint/eslint-plugin': 8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
++      '@typescript-eslint/parser': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
+       '@typescript-eslint/typescript-estree': 8.65.0(typescript@5.9.3)
+-      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+-      eslint: 9.39.5
++      '@typescript-eslint/utils': 8.65.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
++      eslint: 9.39.5(jiti@2.7.0)
+       typescript: 5.9.3
+     transitivePeerDependencies:
+       - supports-color
+ 
+   typescript@5.9.3: {}
+ 
+   undici-types@6.21.0: {}
+ 
+   uri-js@4.4.1:
+     dependencies:
+       punycode: 2.3.1
+ 
+-  vite-node@3.2.4(@types/node@22.20.1)(tsx@4.20.6):
++  vite-node@3.2.4(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6):
+     dependencies:
+       cac: 6.7.14
+       debug: 4.4.3
+       es-module-lexer: 1.7.0
+       pathe: 2.0.3
+-      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
++      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6)
+     transitivePeerDependencies:
+       - '@types/node'
+       - jiti
+       - less
+       - lightningcss
+       - sass
+       - sass-embedded
+       - stylus
+       - sugarss
+       - supports-color
+       - terser
+       - tsx
+       - yaml
+ 
+-  vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6):
++  vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6):
+     dependencies:
+       esbuild: 0.28.1
+       fdir: 6.5.0(picomatch@4.0.5)
+       picomatch: 4.0.5
+       postcss: 8.5.24
+       rollup: 4.62.3
+       tinyglobby: 0.2.17
+     optionalDependencies:
+       '@types/node': 22.20.1
+       fsevents: 2.3.3
++      jiti: 2.7.0
+       tsx: 4.20.6
+ 
+-  vitest@3.2.7(@types/node@22.20.1)(tsx@4.20.6):
++  vitest@3.2.7(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6):
+     dependencies:
+       '@types/chai': 5.2.3
+       '@vitest/expect': 3.2.7
+-      '@vitest/mocker': 3.2.7(vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6))
++      '@vitest/mocker': 3.2.7(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6))
+       '@vitest/pretty-format': 3.2.7
+       '@vitest/runner': 3.2.7
+       '@vitest/snapshot': 3.2.7
+       '@vitest/spy': 3.2.7
+       '@vitest/utils': 3.2.7
+       chai: 5.3.3
+       debug: 4.4.3
+       expect-type: 1.4.0
+       magic-string: 0.30.21
+       pathe: 2.0.3
+       picomatch: 4.0.5
+       std-env: 3.10.0
+       tinybench: 2.9.0
+       tinyexec: 0.3.2
+       tinyglobby: 0.2.17
+       tinypool: 1.1.1
+       tinyrainbow: 2.0.0
+-      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
+-      vite-node: 3.2.4(@types/node@22.20.1)(tsx@4.20.6)
++      vite: 7.3.6(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6)
++      vite-node: 3.2.4(@types/node@22.20.1)(jiti@2.7.0)(tsx@4.20.6)
+       why-is-node-running: 2.3.0
+     optionalDependencies:
+       '@types/node': 22.20.1
+     transitivePeerDependencies:
+       - jiti
+       - less
+       - lightningcss
+       - msw
+       - sass
+       - sass-embedded
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index a8c161f..a712722 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -1,6 +1,9 @@
+ packages:
+   - "apps/*"
+   - "packages/*"
+ 
+ allowBuilds:
++  "@prisma/client": true
++  "@prisma/engines": true
+   esbuild: true
++  prisma: true
+diff --git a/prisma/migrations/20260730104500_tenant_identity_keys/migration.sql b/prisma/migrations/20260730104500_tenant_identity_keys/migration.sql
+new file mode 100644
+index 0000000..d73b645
+--- /dev/null
++++ b/prisma/migrations/20260730104500_tenant_identity_keys/migration.sql
+@@ -0,0 +1,138 @@
++CREATE TYPE "ActorKind" AS ENUM ('HUMAN', 'AGENT', 'SYSTEM');
++CREATE TYPE "HumanRole" AS ENUM ('ADMIN_TENANT', 'ANALISTA_DOSSIE', 'OPERADOR_COBRANCA', 'ENCARREGADO_LGPD');
++CREATE TYPE "SourceStatus" AS ENUM ('ENCONTRADO', 'NAO_ENCONTRADO', 'NAO_CONSULTADO', 'ERRO_NA_FONTE');
++
++CREATE TABLE "Tenant" (
++  "id" TEXT PRIMARY KEY,
++  "theme" JSONB,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
++);
++
++CREATE TABLE "Wallet" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  "name" TEXT NOT NULL,
++  "importedAt" TIMESTAMP(3) NOT NULL,
++  CONSTRAINT "Wallet_tenantId_id_key" UNIQUE ("tenantId", "id")
++);
++
++CREATE TABLE "Debtor" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  "cpfCiphertext" BYTEA NOT NULL,
++  "cpfIv" BYTEA NOT NULL,
++  "cpfAuthTag" BYTEA NOT NULL,
++  "cpfHmac" TEXT NOT NULL,
++  "hmacKeyReference" TEXT NOT NULL,
++  "keyReference" TEXT NOT NULL,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  CONSTRAINT "Debtor_tenantId_id_key" UNIQUE ("tenantId", "id"),
++  CONSTRAINT "Debtor_tenantId_cpfHmac_key" UNIQUE ("tenantId", "cpfHmac")
++);
++
++CREATE TABLE "Title" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL,
++  "walletId" TEXT NOT NULL,
++  "debtorId" TEXT NOT NULL,
++  "externalId" TEXT NOT NULL,
++  "amountCents" BIGINT NOT NULL,
++  "dueDate" TIMESTAMP(3) NOT NULL,
++  CONSTRAINT "Title_tenantId_id_key" UNIQUE ("tenantId", "id"),
++  CONSTRAINT "Title_tenantId_walletId_externalId_key" UNIQUE ("tenantId", "walletId", "externalId"),
++  CONSTRAINT "Title_wallet_fkey" FOREIGN KEY ("tenantId", "walletId") REFERENCES "Wallet"("tenantId", "id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  CONSTRAINT "Title_debtor_fkey" FOREIGN KEY ("tenantId", "debtorId") REFERENCES "Debtor"("tenantId", "id") ON DELETE RESTRICT ON UPDATE CASCADE
++);
++
++CREATE TABLE "ActorIdentity" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  "provider" TEXT NOT NULL,
++  "subject" TEXT NOT NULL,
++  "kind" "ActorKind" NOT NULL,
++  "roles" "HumanRole"[] NOT NULL,
++  "active" BOOLEAN NOT NULL DEFAULT true,
++  CONSTRAINT "ActorIdentity_tenantId_id_key" UNIQUE ("tenantId", "id"),
++  CONSTRAINT "ActorIdentity_tenantId_provider_subject_key" UNIQUE ("tenantId", "provider", "subject")
++);
++
++CREATE TABLE "AgentWalletGrant" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  "actorId" TEXT NOT NULL,
++  "walletId" TEXT NOT NULL,
++  "actions" TEXT[] NOT NULL,
++  "revokedAt" TIMESTAMP(3),
++  CONSTRAINT "AgentWalletGrant_tenantId_id_key" UNIQUE ("tenantId", "id"),
++  CONSTRAINT "AgentWalletGrant_tenantId_actorId_walletId_key" UNIQUE ("tenantId", "actorId", "walletId"),
++  CONSTRAINT "AgentWalletGrant_actor_fkey" FOREIGN KEY ("tenantId", "actorId") REFERENCES "ActorIdentity"("tenantId", "id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  CONSTRAINT "AgentWalletGrant_wallet_fkey" FOREIGN KEY ("tenantId", "walletId") REFERENCES "Wallet"("tenantId", "id") ON DELETE RESTRICT ON UPDATE CASCADE
++);
++
++CREATE TABLE "Observation" (
++  "id" TEXT PRIMARY KEY,
++  "tenantId" TEXT NOT NULL REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
++  "debtorId" TEXT NOT NULL,
++  "source" TEXT NOT NULL,
++  "status" "SourceStatus" NOT NULL,
++  "queryParams" JSONB NOT NULL,
++  "payload" JSONB,
++  "collectedAt" TIMESTAMP(3) NOT NULL,
++  CONSTRAINT "Observation_tenantId_id_key" UNIQUE ("tenantId", "id"),
++  CONSTRAINT "Observation_debtor_fkey" FOREIGN KEY ("tenantId", "debtorId") REFERENCES "Debtor"("tenantId", "id") ON DELETE RESTRICT ON UPDATE CASCADE
++);
++
++CREATE INDEX "Wallet_tenantId_idx" ON "Wallet"("tenantId");
++CREATE INDEX "Debtor_tenantId_idx" ON "Debtor"("tenantId");
++CREATE INDEX "Title_tenantId_debtorId_idx" ON "Title"("tenantId", "debtorId");
++CREATE INDEX "ActorIdentity_tenantId_idx" ON "ActorIdentity"("tenantId");
++CREATE INDEX "AgentWalletGrant_tenantId_walletId_idx" ON "AgentWalletGrant"("tenantId", "walletId");
++CREATE INDEX "Observation_tenantId_debtorId_source_idx" ON "Observation"("tenantId", "debtorId", "source");
++
++ALTER TABLE "Tenant" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "Tenant" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "Tenant_scope" ON "Tenant"
++  USING ("id" = current_setting('app.tenant_id', true))
++  WITH CHECK ("id" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "Wallet" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "Wallet" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "Wallet_scope" ON "Wallet"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "Debtor" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "Debtor" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "Debtor_scope" ON "Debtor"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "Title" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "Title" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "Title_scope" ON "Title"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "ActorIdentity" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "ActorIdentity" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "ActorIdentity_scope" ON "ActorIdentity"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "AgentWalletGrant" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "AgentWalletGrant" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "AgentWalletGrant_scope" ON "AgentWalletGrant"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++ALTER TABLE "Observation" ENABLE ROW LEVEL SECURITY;
++ALTER TABLE "Observation" FORCE ROW LEVEL SECURITY;
++CREATE POLICY "Observation_scope" ON "Observation"
++  USING ("tenantId" = current_setting('app.tenant_id', true))
++  WITH CHECK ("tenantId" = current_setting('app.tenant_id', true));
++
++REVOKE CREATE ON SCHEMA public FROM dossie_app;
++GRANT USAGE ON SCHEMA public TO dossie_app;
++GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dossie_app;
++ALTER DEFAULT PRIVILEGES FOR ROLE dossie_owner IN SCHEMA public
++  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dossie_app;
+diff --git a/prisma/migrations/migration_lock.toml b/prisma/migrations/migration_lock.toml
+new file mode 100644
+index 0000000..2fe25d8
+--- /dev/null
++++ b/prisma/migrations/migration_lock.toml
+@@ -0,0 +1 @@
++provider = "postgresql"
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+new file mode 100644
+index 0000000..6ca13c4
+--- /dev/null
++++ b/prisma/schema.prisma
+@@ -0,0 +1,135 @@
++generator client {
++  provider = "prisma-client-js"
++}
++
++datasource db {
++  provider = "postgresql"
++  url      = env("DATABASE_URL")
++}
++
++enum ActorKind {
++  HUMAN
++  AGENT
++  SYSTEM
++}
++
++enum HumanRole {
++  ADMIN_TENANT
++  ANALISTA_DOSSIE
++  OPERADOR_COBRANCA
++  ENCARREGADO_LGPD
++}
++
++enum SourceStatus {
++  ENCONTRADO
++  NAO_ENCONTRADO
++  NAO_CONSULTADO
++  ERRO_NA_FONTE
++}
++
++model Tenant {
++  id         String   @id
++  theme      Json?
++  createdAt  DateTime @default(now())
++  wallets    Wallet[]
++  debtors    Debtor[]
++  actors     ActorIdentity[]
++  grants     AgentWalletGrant[]
++  observations Observation[]
++}
++
++model Wallet {
++  id          String   @id
++  tenantId    String
++  name        String
++  importedAt  DateTime
++  tenant      Tenant   @relation(fields: [tenantId], references: [id])
++  titles      Title[]
++  grants      AgentWalletGrant[]
++
++  @@unique([tenantId, id])
++  @@index([tenantId])
++}
++
++model Debtor {
++  id               String   @id
++  tenantId         String
++  cpfCiphertext    Bytes
++  cpfIv            Bytes
++  cpfAuthTag       Bytes
++  cpfHmac          String
++  hmacKeyReference String
++  keyReference     String
++  createdAt        DateTime @default(now())
++  tenant           Tenant   @relation(fields: [tenantId], references: [id])
++  titles           Title[]
++  observations     Observation[]
++
++  @@unique([tenantId, id])
++  @@unique([tenantId, cpfHmac])
++  @@index([tenantId])
++}
++
++model Title {
++  id          String   @id
++  tenantId    String
++  walletId    String
++  debtorId    String
++  externalId  String
++  amountCents BigInt
++  dueDate     DateTime
++  wallet      Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id])
++  debtor      Debtor   @relation(fields: [tenantId, debtorId], references: [tenantId, id])
++
++  @@unique([tenantId, id])
++  @@unique([tenantId, walletId, externalId])
++  @@index([tenantId, debtorId])
++}
++
++model ActorIdentity {
++  id        String      @id
++  tenantId  String
++  provider  String
++  subject   String
++  kind      ActorKind
++  roles     HumanRole[]
++  active    Boolean     @default(true)
++  tenant    Tenant      @relation(fields: [tenantId], references: [id])
++  grants    AgentWalletGrant[]
++
++  @@unique([tenantId, id])
++  @@unique([tenantId, provider, subject])
++  @@index([tenantId])
++}
++
++model AgentWalletGrant {
++  id        String    @id
++  tenantId  String
++  actorId   String
++  walletId  String
++  actions   String[]
++  revokedAt DateTime?
++  tenant    Tenant    @relation(fields: [tenantId], references: [id])
++  actor     ActorIdentity @relation(fields: [tenantId, actorId], references: [tenantId, id])
++  wallet    Wallet    @relation(fields: [tenantId, walletId], references: [tenantId, id])
++
++  @@unique([tenantId, id])
++  @@unique([tenantId, actorId, walletId])
++  @@index([tenantId, walletId])
++}
++
++model Observation {
++  id          String       @id
++  tenantId    String
++  debtorId    String
++  source      String
++  status      SourceStatus
++  queryParams Json
++  payload     Json?
++  collectedAt DateTime
++  tenant      Tenant       @relation(fields: [tenantId], references: [id])
++  debtor      Debtor       @relation(fields: [tenantId, debtorId], references: [tenantId, id])
++
++  @@unique([tenantId, id])
++  @@index([tenantId, debtorId, source])
++}

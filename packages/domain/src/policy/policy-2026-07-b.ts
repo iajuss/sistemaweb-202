@@ -1,0 +1,169 @@
+import {
+  absenceEstablished,
+  factValue,
+  type DossierFieldEnvelope,
+  type DossierSnapshot,
+} from "../dossier.js";
+
+import type { PolicyDefinition, SignalDefinition } from "./types.js";
+
+/**
+ * Policy `2026-07-B`. Weights live here, declared and versioned, never as `if`
+ * statements scattered through the engine — a weight nobody can point at is a
+ * weight nobody can review, and the right to review an automated decision is a
+ * legal requirement rather than a feature.
+ *
+ * **`2026-07-A` is gone, and no declared weight or threshold moved.** The
+ * version identifies behaviour, not intent (ADR 025): under `2026-07-A` the
+ * mitigating delta could never fire, and the recurrence signal published a
+ * different name. Two runs both labelled `2026-07-A` would therefore disagree,
+ * so the label had to change even though the table below did not.
+ */
+
+const VALOR_ELEVADO_CENTAVOS = 5_000_000n;
+const MINIMO_DE_TITULOS = 3;
+
+function campo(
+  dossier: DossierSnapshot,
+  key: string,
+): DossierFieldEnvelope | undefined {
+  return dossier.campos[key];
+}
+
+/** Only a confirmed link yields a value. Everything else is evidence. */
+function fato(dossier: DossierSnapshot, key: string) {
+  const envelope = campo(dossier, key);
+  return envelope ? factValue(envelope) : null;
+}
+
+function centavos(dossier: DossierSnapshot, key: string): bigint | null {
+  const value = fato(dossier, key);
+  return value?.tipo === "MONETARIO_CENTAVOS" ? value.centavos : null;
+}
+
+function lista(dossier: DossierSnapshot, key: string): readonly string[] {
+  const value = fato(dossier, key);
+  return value?.tipo === "LISTA_TEXTO" ? value.lista : [];
+}
+
+function encontradoConfirmado(
+  dossier: DossierSnapshot,
+  key: string,
+): boolean {
+  const envelope = campo(dossier, key);
+  if (!envelope || envelope.status !== "ENCONTRADO") {
+    return false;
+  }
+  // The link decides, never a flag handed in with the value.
+  const value = factValue(envelope);
+  return value?.tipo === "BOOLEANO" && value.booleano;
+}
+
+/**
+ * ADR 014, and the tightest gate in the policy. The delta says "present in the
+ * open data, absent from the list, therefore probably paying an instalment
+ * agreement" — an inference that only holds when **both** sources concluded.
+ * Open data must have found the debt under a confirmed link, and the list must
+ * have genuinely looked and found nothing, across its full scope. Any other
+ * combination — unread, failed, filtered, ambiguous — is silence, and silence
+ * is not evidence of regularity.
+ */
+function regularidadeIndiciadaPorDelta(dossier: DossierSnapshot): boolean {
+  const abertos = campo(dossier, "pgfn_dados_abertos_presente");
+  const listaCampo = campo(dossier, "pgfn_lista_presente");
+  if (!abertos || !listaCampo) {
+    return false;
+  }
+
+  if (!encontradoConfirmado(dossier, "pgfn_dados_abertos_presente")) {
+    return false;
+  }
+
+  // **Absence as the resolver concluded it, never the raw source state.** The
+  // list answers `ENCONTRADO` whenever any row came back; if the resolver then
+  // refused every one of them, this person is absent from the list. Keying on
+  // the state would call that presence and kill the signal for exactly the
+  // people it exists for. Unread, failed and doubtful all stay silence, and
+  // silence is not evidence of regularity.
+  if (!absenceEstablished(listaCampo)) {
+    return false;
+  }
+
+  // A manual export may be a cut under operator-chosen filters. "Not found
+  // under a filter" is not "not on the list", so only an export the importer
+  // derived as full-scope, for a subject this debtor matches, qualifies. The
+  // flag is derived from the captured preamble and never assumed.
+  const escopo = Object.values(listaCampo.parametrosConsulta).map(
+    (params) => (params as { escopoCompleto?: unknown }).escopoCompleto,
+  );
+  return escopo.length > 0 && escopo.every((completo) => completo === true);
+}
+
+const SIGNALS: readonly SignalDefinition[] = [
+    {
+      nome: "divida_ativa_confirmada",
+      peso: 0.4,
+      sentido: "AGRAVANTE",
+      fonte: "pgfn_dados_abertos_presente",
+      aplica: (dossier) =>
+        encontradoConfirmado(dossier, "pgfn_dados_abertos_presente"),
+    },
+    {
+      nome: "presenca_na_lista_de_devedores",
+      peso: 0.25,
+      sentido: "AGRAVANTE",
+      fonte: "pgfn_lista_presente",
+      aplica: (dossier) => encontradoConfirmado(dossier, "pgfn_lista_presente"),
+    },
+    {
+      nome: "valor_elevado_em_aberto",
+      peso: 0.2,
+      sentido: "AGRAVANTE",
+      fonte: "carteira_valor_em_aberto",
+      aplica: (dossier) => {
+        const valor = centavos(dossier, "carteira_valor_em_aberto");
+        return valor !== null && valor >= VALOR_ELEVADO_CENTAVOS;
+      },
+    },
+    {
+      nome: "tres_ou_mais_titulos_em_aberto",
+      peso: 0.15,
+      sentido: "AGRAVANTE",
+      fonte: "carteira_titulos",
+      aplica: (dossier) =>
+        lista(dossier, "carteira_titulos").length >= MINIMO_DE_TITULOS,
+    },
+    {
+      nome: "pgfn_regularidade_indiciada_por_delta",
+      peso: -0.3,
+      sentido: "MITIGADOR",
+      fonte: "pgfn_dados_abertos_presente+pgfn_lista_presente",
+      aplica: regularidadeIndiciadaPorDelta,
+    },
+    {
+      // ADR 012: weight zero and contribution zero. Being a partner in a
+      // company demonstrates no income, no liquidity and no alternative
+      // channel; any other use needs a new purpose, evidence and ADR.
+      nome: "vinculo_societario_qsa_contextual",
+      peso: 0,
+      sentido: "CONTEXTUAL",
+      fonte: "qsa_vinculo",
+      aplica: () => false,
+    },
+];
+
+export const POLICY_2026_07_B: PolicyDefinition = Object.freeze({
+  version: "2026-07-B",
+  valorElevadoCentavos: VALOR_ELEVADO_CENTAVOS,
+  minimoDeTitulos: MINIMO_DE_TITULOS,
+  thresholds: Object.freeze({ intensiva: 0.7, padrao: 0.3 }),
+  priorities: Object.freeze({
+    COBRANCA_INTENSIVA: 0,
+    COBRANCA_PADRAO: 1,
+    MONITORAMENTO: 2,
+    DADOS_INSUFICIENTES: 3,
+  }),
+  signals: Object.freeze(SIGNALS.map((signal) => Object.freeze(signal))),
+});
+
+export { regularidadeIndiciadaPorDelta };

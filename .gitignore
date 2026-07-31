@@ -1,2 +1,14 @@
 .worktrees/
 .superpowers/
+.env
+.env.*
+!.env.example
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+generated/
+*.tsbuildinfo
+raw-source-downloads/
+downloads/
+lista-devedores-pgfn-*.xlsx

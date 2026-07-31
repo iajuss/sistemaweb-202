@@ -11,8 +11,9 @@ carteira concreta.
 Cada agente recebe um client confidencial próprio no Keycloak, com service account
 e fluxo OAuth 2.0 `client_credentials`; não haverá API key estática na v1. O
 agent recebe escopo técnico mínimo de API e sua credencial é rotacionável ou
-revogável no Keycloak. O token tem vida curta; a aplicação valida assinatura,
-issuer, audience e expiração.
+revogável no Keycloak. A validação de assinatura, issuer, audience e expiração
+é pendência explícita de JWT/JWKS; não há aceitação de token em produção até a
+validação fail-closed da ADR 021.
 
 No domínio, todo pedido chega com um valor `Actor`, humano ou máquina, contendo
 tipo, `provedor + subject`, tenant e identificador interno. Uma concessão de

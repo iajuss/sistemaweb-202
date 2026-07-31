@@ -1,0 +1,6 @@
+# Import fixtures exist to prove byte-level behaviour: BOM detection, CP1252
+# decoding and CRLF handling. Line-ending normalization would silently rewrite
+# the very bytes under test, so these files are never converted.
+fixtures/wallet/** -text
+fixtures/pgfn/** -text
+*.xlsx binary

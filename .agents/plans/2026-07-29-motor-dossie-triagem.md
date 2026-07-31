@@ -22,6 +22,51 @@
 
 ---
 
+## Reordenação para caminho vertical fino (2026-07-31)
+
+Decisão do usuário por prazo: entrega no domingo, com as fatias 1–3 fechadas e
+nenhuma das quatro funcionalidades do enunciado funcionando. O objetivo passa a
+ser **atravessar o sistema de ponta a ponta com as quatro funcionalidades
+estreitas**, não completar duas delas em profundidade.
+
+**Ordem de execução:** 4 → 8 → 5 → 6 → **6.5** → 7 → 11 → 9 → 10 → 12.
+
+| Ordem | Task | Entrega estreita |
+|---|---|---|
+| 1 | 4 | Importação de carteira (CSV/XLSX, quarentena) |
+| 2 | 8 | PGFN Dados Abertos — uma fonte só, funcionando |
+| 3 | 5 | Resolução de identidade |
+| 4 | 6 | Observações, cobertura e dossiê |
+| 5 | **6.5** | **Persistência de carteira e observações em PostgreSQL** |
+| 6 | 7 | Política de triagem e desfechos |
+| 7 | 11 | API agent-first, contratos e endpoint de prompt |
+
+**Escopo reduzido do que sobra:**
+
+- **Task 9** vira documentação. QSA/RFB e Portal da Transparência ficam como
+  fontes **mapeadas e não integradas** em `docs/fontes.md`, com adapter stub. O
+  enunciado autoriza isso explicitamente.
+- **Task 10** fica na política já desenhada em ADR 009, com job de expurgo
+  parcial.
+- **Task 12** vira UI mínima: uma tela de prioridades da carteira e uma de
+  dossiê. Sem tela de revisões.
+
+**Entregáveis baratos que o enunciado pede, tratados como obrigatórios:**
+`docs/fontes.md` completo, `docs/lgpd.md` com base legal por fonte, `README.md`
+com setup reproduzível em um comando, e o conjunto pequeno de casos de teste
+conferíveis à mão.
+
+**Modo de execução a partir da Task 4: inline.** Sem subagente, sem revisor
+separado, sem re-revisão. O ciclo de três agentes valeu na fatia de segurança e
+não se paga para importar CSV. TDD com RED observado e verificação antes de
+declarar pronto continuam valendo integralmente. Parar e perguntar só se algo
+exigir afrouxar invariante do `AGENTS.md`.
+
+**Pendências documentadas, não implementadas:** ver `docs/limitacoes-v1.md` e o
+ledger. Nenhuma delas é exercitável sem superfície HTTP, que só chega na Task 11.
+
+---
+
 ## File map
 
 | Caminho | Responsabilidade |
@@ -167,7 +212,15 @@ git commit -m "feat: add versioned domain contracts"
 - Create: `packages/application/src/authorize-actor.ts`, `packages/adapters/src/kms.ts`, `packages/adapters/src/keycloak.ts`
 - Test: `packages/domain/src/authorization.test.ts`, `packages/application/src/authorize-actor.test.ts`, `packages/adapters/src/kms.test.ts`
 
-**Interfaces:** Consumes `Actor`; produces `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey` and `IdentityRef { provider, subject }`.
+**Interfaces:** Consumes `Actor`; produces `TenantContext { tenantId: string; actor: Actor }`, `TenantScopedRepository<T>` whose every read/write receives `TenantContext`, `authorize(actor, walletId, action)`, `encryptCpf`, `decryptCpf`, `destroyDebtorKey`, `readDebtor` and `IdentityRef { provider, subject }`. `encryptCpf` and `decryptCpf` receive `{ tenantId, debtorId }` as AEAD associated-data inputs; `readDebtor` returns `{ readState: "ELIMINADO_A_PEDIDO_DO_TITULAR"; audit: AuditSkeleton }` after destroyed-key lookup.
+
+**Acceptance criteria from AGENTS.md:**
+- Every tenant-scoped read and write uses a repository that requires runtime `TenantContext`; raw Prisma is forbidden outside that layer by an architectural test or lint rule. PostgreSQL RLS is enabled in production with transaction-scoped `SET LOCAL app.tenant_id`, never an application bypass.
+- The report must show RED output where an observation written for tenant A is readable by tenant B before the repository guard exists; the final test must fail if that guard is removed.
+- CPF is encrypted with AEAD using `tenant_id` and `debtor_id` as associated data; moving ciphertext to another debtor or tenant must fail to decrypt.
+- CPF lookup uses HMAC with a vault-held secret separate from the encryption key; no plain hash is allowed, and the ADR records that HMAC-key rotation requires reindexing.
+- Destroyed debtor key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR`, with audit skeleton available and no decrypt error or ciphertext exposed.
+- Runtime authorization runs on every human, agent and system-worker access. Backend lookup accepts only a CPF already present in an authorized imported wallet, and a test fails if this check is removed.
 
 - [ ] **Step 1: Write failing tenant and actor tests**
 
@@ -178,8 +231,20 @@ it("denies an agent a wallet grant from another tenant", () => {
 
 it("destroys only the selected debtor key", async () => {
   await destroyDebtorKey("debtor-a");
-  await expect(decryptCpf(recordA)).rejects.toThrow("KEY_DESTROYED");
+  await expect(readDebtor(recordA)).resolves.toMatchObject({
+    readState: "ELIMINADO_A_PEDIDO_DO_TITULAR",
+    audit: expect.any(Object),
+  });
   await expect(decryptCpf(recordB)).resolves.toBe("valid");
+});
+
+it("cannot read a tenant A observation through tenant B context", async () => {
+  await repositoryFor(tenantA).save(observationForTenantA);
+  await expect(repositoryFor(tenantB).find(observationForTenantA.id)).resolves.toBeNull();
+});
+
+it("rejects ciphertext copied to another tenant or debtor", async () => {
+  await expect(decryptCpf({ ...recordA, tenantId: tenantB.id })).rejects.toThrow("AEAD_AUTH_FAILED");
 });
 ```
 
@@ -191,13 +256,13 @@ Expected: failures because policy and key interfaces do not exist.
 
 - [ ] **Step 3: Implement schema and ports**
 
-Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables. Store CPF ciphertext, HMAC index and `key_reference`; do not add a persisted mask fragment. Implement domain authorization independently of Keycloak. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for tests and AWS KMS adapter configuration for production.
+Add tenant-scoped wallet, debtor, title, actor identity and agent-wallet-grant tables with production RLS policies. Expose only tenant-context repositories; use transaction-local tenant session state and prohibit raw Prisma outside repositories. Store AEAD CPF ciphertext, HMAC index and `key_reference`; HMAC and cipher use separate vault keys and no persisted mask fragment exists. Implement domain authorization independently of Keycloak for human, agent and system worker. Map Keycloak issuer/`sub` and service-account subject into `Actor`; add fake KMS for offline tests and AWS KMS configuration for production.
 
 - [ ] **Step 4: Verify tenant isolation**
 
 Run: `pnpm exec prisma migrate dev && pnpm test && pnpm typecheck`
 
-Expected: tenant-crossing read is denied; destroyed key returns named `KEY_DESTROYED` internally without exposing ciphertext.
+Expected: RED evidence proves the original A-to-B leak before the guard; final tenant-crossing read is denied by repository and RLS integration coverage, copied ciphertext fails AEAD authentication, HMAC key material is separate, and destroyed key reads as `ELIMINADO_A_PEDIDO_DO_TITULAR` without exposing ciphertext.
 
 - [ ] **Step 5: Commit**
 
@@ -342,6 +407,47 @@ Expected: observations can be re-resolved before purge; no snapshot changes afte
 git add prisma packages/domain packages/application packages/adapters
 git commit -m "feat: compose immutable dossiers from observations"
 ```
+
+### Task 6.5: Persistência de carteira e observações em PostgreSQL
+
+Criada em 2026-07-31, por decisão explícita do usuário, para tirar a
+persistência da condição de pendência sem posição. A Task 4 entregou os títulos
+atrás das portas `WalletImportStore` com implementação **em memória**; a Task 8
+entregou observações PGFN como valores em memória. Deixar isso para a Task 11 —
+a última da fila — é o modo conhecido de uma pendência nunca chegar. Dossiê e
+classificação precisam nascer sobre persistência real, com os repositórios
+Prisma que a fatia 3 construiu.
+
+**Posição:** imediatamente após a Task 6, antes da Task 7.
+
+**Files:**
+- Create: `packages/adapters/src/repositories/prisma-wallet-repository.ts`
+- Modify: `packages/adapters/src/repositories/prisma-observation-repository.ts`
+- Modify: `prisma/schema.prisma` (nome do devedor no título, auditoria de importação)
+- Test: `packages/adapters/src/repositories/prisma-wallet-repository.test.ts`
+
+**Interfaces:** implementa `WalletImportStore` sobre Prisma, com a mesma
+autoridade das classes existentes: emissão por fábrica, campos `#`, protótipo
+congelado, `VerifiedPrincipal` mais `AuthorizedOperation` em toda chamada.
+
+**Critérios de aceitação:**
+
+- As mesmas suítes de `import-wallet` passam contra PostgreSQL, não só contra a
+  implementação em memória. Idempotência por `id_externo` sob índice único real
+  `(tenantId, walletId, externalId)`, não apenas por chave de `Map`.
+- Escrita e leitura entram no teste de isolamento tenant A → B já existente, com
+  RLS ativa; a nova classe entra na lista `describe.each` dos invariantes
+  arquiteturais de `tenant-repository.test.ts`.
+- CPF cifrado em repouso, índice HMAC no banco, e nenhuma consulta com CPF em
+  claro em parâmetro, log ou mensagem de erro.
+- Observação PGFN persistida como fato tenant + devedor, sem `walletId`
+  (ADR 020), reutilizável entre carteiras que contenham o mesmo devedor.
+- Auditoria de importação em tabela append-only.
+- Migração aplicada por `prisma migrate deploy` no Compose, com `migrate diff
+  --exit-code` vazio ao final.
+
+**Steps:** RED de idempotência contra o índice único real antes da migração;
+migração e repositório; execução da suíte com Compose de pé; commit.
 
 ### Task 7: Política de triagem, ordenação e desfechos
 

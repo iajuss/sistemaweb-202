@@ -1,0 +1,33 @@
+{
+  "name": "panella-dossie-triagem",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "pnpm -r test",
+    "test:unit": "vitest run --exclude \"**/node_modules/**\" --exclude \"**/*.integration.test.ts\"",
+    "test:integration": "vitest run integration.test --no-file-parallelism",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --project tsconfig.base.json --noEmit",
+    "generate:contracts": "pnpm --filter @panella/contracts generate",
+    "migrate": "node scripts/migrate.mjs",
+    "migrate:compose": "docker compose run --rm migrate",
+    "compose:up": "docker compose up -d --wait postgres keycloak",
+    "compose:down": "docker compose down",
+    "dev": "pnpm --filter @panella/web dev",
+    "demo": "pnpm --filter @panella/web demo",
+    "worker": "pnpm --filter @panella/worker start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@prisma/client": "6.19.0",
+    "@types/node": "^22.15.0",
+    "eslint": "^9.35.0",
+    "prisma": "6.19.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.42.0",
+    "vitest": "^3.2.4"
+  }
+}

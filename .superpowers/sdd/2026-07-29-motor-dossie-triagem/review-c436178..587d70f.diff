@@ -1,0 +1,1567 @@
+# Review package: c4361789022dff7807e8c26485087702f2df42a2..587d70f
+
+## Commits
+587d70f feat: add versioned domain contracts
+
+## Files changed
+ packages/contracts/generated/dossier.schema.json   | 113 +++++++
+ packages/contracts/generated/openapi.json          | 210 +++++++++++++
+ packages/contracts/package.json                    |  10 +-
+ packages/contracts/src/classification-schema.ts    |  21 ++
+ packages/contracts/src/dossier-schema.ts           |  50 +++
+ packages/contracts/src/generate.ts                 |  29 ++
+ .../contracts/src/schema-compatibility.test.ts     |  26 ++
+ packages/domain/package.json                       |   5 +
+ packages/domain/src/actor.ts                       |   8 +
+ packages/domain/src/index.ts                       |   4 +
+ packages/domain/src/money.test.ts                  |  13 +
+ packages/domain/src/money.ts                       |  28 ++
+ packages/domain/src/source-status.test.ts          |  18 ++
+ packages/domain/src/source-status.ts               |  11 +
+ pnpm-lock.yaml                                     | 337 ++++++++++++++++++++-
+ 15 files changed, 870 insertions(+), 13 deletions(-)
+
+## Diff
+diff --git a/packages/contracts/generated/dossier.schema.json b/packages/contracts/generated/dossier.schema.json
+new file mode 100644
+index 0000000..cc7413f
+--- /dev/null
++++ b/packages/contracts/generated/dossier.schema.json
+@@ -0,0 +1,113 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "type": "object",
++  "properties": {
++    "schema_version": {
++      "type": "string",
++      "pattern": "^\\d+\\.\\d+\\.\\d+$"
++    },
++    "dossier_id": {
++      "type": "string",
++      "minLength": 1
++    },
++    "composed_at": {
++      "type": "string",
++      "format": "date-time",
++      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++    },
++    "fields": {
++      "type": "object",
++      "propertyNames": {
++        "type": "string"
++      },
++      "additionalProperties": {
++        "type": "object",
++        "properties": {
++          "valor": {
++            "anyOf": [
++              {},
++              {
++                "type": "null"
++              }
++            ]
++          },
++          "status": {
++            "type": "string",
++            "enum": [
++              "ENCONTRADO",
++              "NAO_ENCONTRADO",
++              "NAO_CONSULTADO",
++              "ERRO_NA_FONTE"
++            ]
++          },
++          "fonte": {
++            "type": "object",
++            "properties": {
++              "fonte": {
++                "type": "string",
++                "minLength": 1
++              },
++              "parametros_consulta": {
++                "type": "object",
++                "propertyNames": {
++                  "type": "string"
++                },
++                "additionalProperties": {}
++              }
++            },
++            "required": [
++              "fonte",
++              "parametros_consulta"
++            ],
++            "additionalProperties": false
++          },
++          "coletado_em": {
++            "type": "string",
++            "format": "date-time",
++            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++          },
++          "data_referencia": {
++            "anyOf": [
++              {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              {
++                "type": "null"
++              }
++            ]
++          },
++          "confianca_vinculo": {
++            "type": "number",
++            "minimum": 0,
++            "maximum": 1
++          },
++          "evidencia_vinculo": {
++            "type": "array",
++            "items": {
++              "type": "string"
++            }
++          }
++        },
++        "required": [
++          "valor",
++          "status",
++          "fonte",
++          "coletado_em",
++          "data_referencia",
++          "confianca_vinculo",
++          "evidencia_vinculo"
++        ],
++        "additionalProperties": false
++      }
++    }
++  },
++  "required": [
++    "schema_version",
++    "dossier_id",
++    "composed_at",
++    "fields"
++  ],
++  "additionalProperties": false
++}
+diff --git a/packages/contracts/generated/openapi.json b/packages/contracts/generated/openapi.json
+new file mode 100644
+index 0000000..0345caa
+--- /dev/null
++++ b/packages/contracts/generated/openapi.json
+@@ -0,0 +1,210 @@
++{
++  "openapi": "3.1.0",
++  "info": {
++    "title": "Dossier triage contracts",
++    "version": "1.0.0"
++  },
++  "components": {
++    "schemas": {
++      "Dossier": {
++        "$schema": "https://json-schema.org/draft/2020-12/schema",
++        "type": "object",
++        "properties": {
++          "schema_version": {
++            "type": "string",
++            "pattern": "^\\d+\\.\\d+\\.\\d+$"
++          },
++          "dossier_id": {
++            "type": "string",
++            "minLength": 1
++          },
++          "composed_at": {
++            "type": "string",
++            "format": "date-time",
++            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++          },
++          "fields": {
++            "type": "object",
++            "propertyNames": {
++              "type": "string"
++            },
++            "additionalProperties": {
++              "type": "object",
++              "properties": {
++                "valor": {
++                  "anyOf": [
++                    {},
++                    {
++                      "type": "null"
++                    }
++                  ]
++                },
++                "status": {
++                  "type": "string",
++                  "enum": [
++                    "ENCONTRADO",
++                    "NAO_ENCONTRADO",
++                    "NAO_CONSULTADO",
++                    "ERRO_NA_FONTE"
++                  ]
++                },
++                "fonte": {
++                  "type": "object",
++                  "properties": {
++                    "fonte": {
++                      "type": "string",
++                      "minLength": 1
++                    },
++                    "parametros_consulta": {
++                      "type": "object",
++                      "propertyNames": {
++                        "type": "string"
++                      },
++                      "additionalProperties": {}
++                    }
++                  },
++                  "required": [
++                    "fonte",
++                    "parametros_consulta"
++                  ],
++                  "additionalProperties": false
++                },
++                "coletado_em": {
++                  "type": "string",
++                  "format": "date-time",
++                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                },
++                "data_referencia": {
++                  "anyOf": [
++                    {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    {
++                      "type": "null"
++                    }
++                  ]
++                },
++                "confianca_vinculo": {
++                  "type": "number",
++                  "minimum": 0,
++                  "maximum": 1
++                },
++                "evidencia_vinculo": {
++                  "type": "array",
++                  "items": {
++                    "type": "string"
++                  }
++                }
++              },
++              "required": [
++                "valor",
++                "status",
++                "fonte",
++                "coletado_em",
++                "data_referencia",
++                "confianca_vinculo",
++                "evidencia_vinculo"
++              ],
++              "additionalProperties": false
++            }
++          }
++        },
++        "required": [
++          "schema_version",
++          "dossier_id",
++          "composed_at",
++          "fields"
++        ],
++        "additionalProperties": false
++      },
++      "Classification": {
++        "$schema": "https://json-schema.org/draft/2020-12/schema",
++        "type": "object",
++        "properties": {
++          "schema_version": {
++            "type": "string",
++            "pattern": "^\\d+\\.\\d+\\.\\d+$"
++          },
++          "classification_id": {
++            "type": "string",
++            "minLength": 1
++          },
++          "dossier_id": {
++            "type": "string",
++            "minLength": 1
++          },
++          "policy_version": {
++            "type": "string",
++            "minLength": 1
++          },
++          "classified_at": {
++            "type": "string",
++            "format": "date-time",
++            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++          },
++          "category": {
++            "type": "string",
++            "minLength": 1
++          },
++          "operational_priority": {
++            "type": "integer",
++            "minimum": 0,
++            "maximum": 9007199254740991
++          },
++          "primary_strategy": {
++            "type": "string",
++            "minLength": 1
++          },
++          "signals": {
++            "type": "array",
++            "items": {
++              "type": "object",
++              "properties": {
++                "nome": {
++                  "type": "string",
++                  "minLength": 1
++                },
++                "peso": {
++                  "type": "number"
++                },
++                "fonte": {
++                  "type": "string",
++                  "minLength": 1
++                },
++                "aplicado": {
++                  "type": "boolean"
++                }
++              },
++              "required": [
++                "nome",
++                "peso",
++                "fonte",
++                "aplicado"
++              ],
++              "additionalProperties": false
++            }
++          },
++          "explicacao": {
++            "type": "string",
++            "minLength": 1
++          }
++        },
++        "required": [
++          "schema_version",
++          "classification_id",
++          "dossier_id",
++          "policy_version",
++          "classified_at",
++          "category",
++          "operational_priority",
++          "primary_strategy",
++          "signals",
++          "explicacao"
++        ],
++        "additionalProperties": false
++      }
++    }
++  }
++}
+diff --git a/packages/contracts/package.json b/packages/contracts/package.json
+index fb30798..13425ea 100644
+--- a/packages/contracts/package.json
++++ b/packages/contracts/package.json
+@@ -1,9 +1,17 @@
+ {
+   "name": "@panella/contracts",
+   "private": true,
+   "version": "0.0.0",
++  "type": "module",
+   "scripts": {
+-    "generate": "node -e \"console.log('No contracts to generate during workspace bootstrap')\"",
++    "generate": "tsx src/generate.ts",
+     "test": "vitest run --passWithNoTests"
++  },
++  "dependencies": {
++    "@panella/domain": "workspace:*",
++    "zod": "4.1.12"
++  },
++  "devDependencies": {
++    "tsx": "4.20.6"
+   }
+ }
+diff --git a/packages/contracts/src/classification-schema.ts b/packages/contracts/src/classification-schema.ts
+new file mode 100644
+index 0000000..d30355c
+--- /dev/null
++++ b/packages/contracts/src/classification-schema.ts
+@@ -0,0 +1,21 @@
++import { z } from "zod";
++
++export const ClassificationSchema = z.object({
++  schema_version: z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED"),
++  classification_id: z.string().min(1),
++  dossier_id: z.string().min(1),
++  policy_version: z.string().min(1),
++  classified_at: z.iso.datetime(),
++  category: z.string().min(1),
++  operational_priority: z.number().int().nonnegative(),
++  primary_strategy: z.string().min(1),
++  signals: z.array(z.object({
++    nome: z.string().min(1),
++    peso: z.number(),
++    fonte: z.string().min(1),
++    aplicado: z.boolean(),
++  })),
++  explicacao: z.string().min(1),
++});
++
++export type Classification = z.infer<typeof ClassificationSchema>;
+diff --git a/packages/contracts/src/dossier-schema.ts b/packages/contracts/src/dossier-schema.ts
+new file mode 100644
+index 0000000..084be73
+--- /dev/null
++++ b/packages/contracts/src/dossier-schema.ts
+@@ -0,0 +1,50 @@
++import { SourceStatusSchema } from "@panella/domain";
++import { z } from "zod";
++
++const SemanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED");
++
++export const SourceProvenanceSchema = z.object({
++  fonte: z.string().min(1),
++  parametros_consulta: z.record(z.string(), z.unknown()),
++});
++
++export const FieldEnvelopeSchema = z.object({
++  valor: z.unknown().nullable(),
++  status: SourceStatusSchema,
++  fonte: SourceProvenanceSchema,
++  coletado_em: z.iso.datetime(),
++  data_referencia: z.iso.datetime().nullable(),
++  confianca_vinculo: z.number().min(0).max(1),
++  evidencia_vinculo: z.array(z.string()),
++});
++
++export const DossierSchema = z.object({
++  schema_version: SemanticVersionSchema,
++  dossier_id: z.string().min(1),
++  composed_at: z.iso.datetime(),
++  fields: z.record(z.string(), FieldEnvelopeSchema),
++});
++
++export type FieldEnvelope = z.infer<typeof FieldEnvelopeSchema>;
++export type Dossier = z.infer<typeof DossierSchema>;
++
++function majorVersion(version: string): string {
++  return version.split(".", 1)[0] ?? "";
++}
++
++export function assertSchemaCompatibility(
++  published: z.infer<typeof DossierSchema>,
++  candidate: unknown,
++): void {
++  const result = DossierSchema.safeParse(candidate);
++  if (result.success) {
++    return;
++  }
++
++  const candidateVersion = z.object({ schema_version: SemanticVersionSchema }).safeParse(candidate);
++  if (candidateVersion.success && majorVersion(candidateVersion.data.schema_version) !== majorVersion(published.schema_version)) {
++    return;
++  }
++
++  throw new TypeError("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
++}
+diff --git a/packages/contracts/src/generate.ts b/packages/contracts/src/generate.ts
+new file mode 100644
+index 0000000..9875b37
+--- /dev/null
++++ b/packages/contracts/src/generate.ts
+@@ -0,0 +1,29 @@
++import { mkdir, writeFile } from "node:fs/promises";
++import { resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++import { z } from "zod";
++
++import { ClassificationSchema } from "./classification-schema.js";
++import { DossierSchema } from "./dossier-schema.js";
++
++const GENERATED_DIRECTORY = resolve(import.meta.dirname, "../generated");
++
++export async function generateContracts(): Promise<void> {
++  const dossierSchema = z.toJSONSchema(DossierSchema, { target: "draft-2020-12" });
++  const classificationSchema = z.toJSONSchema(ClassificationSchema, { target: "draft-2020-12" });
++  const openApi = {
++    openapi: "3.1.0",
++    info: { title: "Dossier triage contracts", version: "1.0.0" },
++    components: { schemas: { Dossier: dossierSchema, Classification: classificationSchema } },
++  };
++
++  await mkdir(GENERATED_DIRECTORY, { recursive: true });
++  await Promise.all([
++    writeFile(resolve(GENERATED_DIRECTORY, "dossier.schema.json"), `${JSON.stringify(dossierSchema, null, 2)}\n`),
++    writeFile(resolve(GENERATED_DIRECTORY, "openapi.json"), `${JSON.stringify(openApi, null, 2)}\n`),
++  ]);
++}
++
++if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
++  await generateContracts();
++}
+diff --git a/packages/contracts/src/schema-compatibility.test.ts b/packages/contracts/src/schema-compatibility.test.ts
+new file mode 100644
+index 0000000..47c93d2
+--- /dev/null
++++ b/packages/contracts/src/schema-compatibility.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from "vitest";
++
++import { DossierSchema, assertSchemaCompatibility } from "./dossier-schema.js";
++
++describe("dossier schema compatibility", () => {
++  it("rejects a breaking fixture unless schema_version major changes", () => {
++    const published = DossierSchema.parse({
++      schema_version: "1.0.0",
++      dossier_id: "dossier-1",
++      composed_at: "2026-07-29T00:00:00.000Z",
++      fields: {},
++    });
++
++    expect(() => assertSchemaCompatibility(published, {
++      schema_version: "1.1.0",
++      dossier_id: "dossier-1",
++      composed_at: "2026-07-29T00:00:00.000Z",
++    })).toThrow("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
++
++    expect(() => assertSchemaCompatibility(published, {
++      schema_version: "2.0.0",
++      dossier_id: "dossier-1",
++      composed_at: "2026-07-29T00:00:00.000Z",
++    })).not.toThrow();
++  });
++});
+diff --git a/packages/domain/package.json b/packages/domain/package.json
+index b9aee14..1f15246 100644
+--- a/packages/domain/package.json
++++ b/packages/domain/package.json
+@@ -1,8 +1,13 @@
+ {
+   "name": "@panella/domain",
+   "private": true,
+   "version": "0.0.0",
++  "type": "module",
++  "exports": "./src/index.ts",
+   "scripts": {
+     "test": "vitest run"
++  },
++  "dependencies": {
++    "zod": "4.1.12"
+   }
+ }
+diff --git a/packages/domain/src/actor.ts b/packages/domain/src/actor.ts
+new file mode 100644
+index 0000000..485b3e3
+--- /dev/null
++++ b/packages/domain/src/actor.ts
+@@ -0,0 +1,8 @@
++export type ActorKind = "HUMAN" | "AGENT" | "SYSTEM";
++
++export interface Actor {
++  readonly kind: ActorKind;
++  readonly provider: string;
++  readonly subject: string;
++  readonly tenantId?: string;
++}
+diff --git a/packages/domain/src/index.ts b/packages/domain/src/index.ts
+new file mode 100644
+index 0000000..5327748
+--- /dev/null
++++ b/packages/domain/src/index.ts
+@@ -0,0 +1,4 @@
++export { Money } from "./money.js";
++export type { Actor, ActorKind } from "./actor.js";
++export { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
++export type { SourceStatus } from "./source-status.js";
+diff --git a/packages/domain/src/money.test.ts b/packages/domain/src/money.test.ts
+new file mode 100644
+index 0000000..e0b2ad6
+--- /dev/null
++++ b/packages/domain/src/money.test.ts
+@@ -0,0 +1,13 @@
++import { describe, expect, it } from "vitest";
++
++import { Money } from "./money.js";
++
++describe("Money", () => {
++  it("keeps 29163886.440000001 out of monetary arithmetic", () => {
++    expect(Money.fromDecimalString("29163886.440000001").toCents()).toBe(2916388644n);
++  });
++
++  it("rejects number inputs so monetary values cannot use floating point", () => {
++    expect(() => Money.fromDecimalString(29163886.44 as never)).toThrow(TypeError);
++  });
++});
+diff --git a/packages/domain/src/money.ts b/packages/domain/src/money.ts
+new file mode 100644
+index 0000000..042124f
+--- /dev/null
++++ b/packages/domain/src/money.ts
+@@ -0,0 +1,28 @@
++const DECIMAL_PATTERN = /^(-?)(\d+)(?:\.(\d+))?$/;
++
++export class Money {
++  private constructor(private readonly cents: bigint) {}
++
++  static fromCents(cents: bigint): Money {
++    return new Money(cents);
++  }
++
++  static fromDecimalString(decimal: string): Money {
++    if (typeof decimal !== "string") {
++      throw new TypeError("MONEY_DECIMAL_MUST_BE_A_STRING");
++    }
++
++    const parts = DECIMAL_PATTERN.exec(decimal);
++    if (parts === null) {
++      throw new TypeError("MONEY_DECIMAL_FORMAT_INVALID");
++    }
++
++    const [, sign, whole, fraction = ""] = parts;
++    const cents = BigInt(whole) * 100n + BigInt(fraction.slice(0, 2).padEnd(2, "0"));
++    return new Money(sign === "-" ? -cents : cents);
++  }
++
++  toCents(): bigint {
++    return this.cents;
++  }
++}
+diff --git a/packages/domain/src/source-status.test.ts b/packages/domain/src/source-status.test.ts
+new file mode 100644
+index 0000000..16d8c81
+--- /dev/null
++++ b/packages/domain/src/source-status.test.ts
+@@ -0,0 +1,18 @@
++import { describe, expect, it } from "vitest";
++
++import { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
++
++describe("SourceStatus", () => {
++  it("does not collapse source states", () => {
++    expect(new Set(SOURCE_STATUSES)).toEqual(new Set([
++      "ENCONTRADO",
++      "NAO_ENCONTRADO",
++      "NAO_CONSULTADO",
++      "ERRO_NA_FONTE",
++    ]));
++  });
++
++  it("rejects values outside the four distinct states", () => {
++    expect(SourceStatusSchema.safeParse("DESCONHECIDO").success).toBe(false);
++  });
++});
+diff --git a/packages/domain/src/source-status.ts b/packages/domain/src/source-status.ts
+new file mode 100644
+index 0000000..324454c
+--- /dev/null
++++ b/packages/domain/src/source-status.ts
+@@ -0,0 +1,11 @@
++import { z } from "zod";
++
++export const SOURCE_STATUSES = [
++  "ENCONTRADO",
++  "NAO_ENCONTRADO",
++  "NAO_CONSULTADO",
++  "ERRO_NA_FONTE",
++] as const;
++
++export const SourceStatusSchema = z.enum(SOURCE_STATUSES);
++export type SourceStatus = z.infer<typeof SourceStatusSchema>;
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index c2f188f..62638d6 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -18,186 +18,357 @@ importers:
+         specifier: ^9.35.0
+         version: 9.39.5
+       typescript:
+         specifier: ^5.8.3
+         version: 5.9.3
+       typescript-eslint:
+         specifier: ^8.42.0
+         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+       vitest:
+         specifier: ^3.2.4
+-        version: 3.2.7(@types/node@22.20.1)
++        version: 3.2.7(@types/node@22.20.1)(tsx@4.20.6)
+ 
+   apps/web: {}
+ 
+   apps/worker: {}
+ 
+   packages/adapters: {}
+ 
+   packages/application: {}
+ 
+-  packages/contracts: {}
++  packages/contracts:
++    dependencies:
++      '@panella/domain':
++        specifier: workspace:*
++        version: link:../domain
++      zod:
++        specifier: 4.1.12
++        version: 4.1.12
++    devDependencies:
++      tsx:
++        specifier: 4.20.6
++        version: 4.20.6
+ 
+-  packages/domain: {}
++  packages/domain:
++    dependencies:
++      zod:
++        specifier: 4.1.12
++        version: 4.1.12
+ 
+ packages:
+ 
++  '@esbuild/aix-ppc64@0.25.12':
++    resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
++    engines: {node: '>=18'}
++    cpu: [ppc64]
++    os: [aix]
++
+   '@esbuild/aix-ppc64@0.28.1':
+     resolution: {integrity: sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ==}
+     engines: {node: '>=18'}
+     cpu: [ppc64]
+     os: [aix]
+ 
++  '@esbuild/android-arm64@0.25.12':
++    resolution: {integrity: sha512-6AAmLG7zwD1Z159jCKPvAxZd4y/VTO0VkprYy+3N2FtJ8+BQWFXU+OxARIwA46c5tdD9SsKGZ/1ocqBS/gAKHg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [android]
++
+   '@esbuild/android-arm64@0.28.1':
+     resolution: {integrity: sha512-34EGEbCIAgosYz6goLcopX6Mo7NyGv9tfwEM2/7Ce2VcVRk568iSvniGWcUXIy7wEDR1wzolcxcriFVrWYcwBg==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [android]
+ 
++  '@esbuild/android-arm@0.25.12':
++    resolution: {integrity: sha512-VJ+sKvNA/GE7Ccacc9Cha7bpS8nyzVv0jdVgwNDaR4gDMC/2TTRc33Ip8qrNYUcpkOHUT5OZ0bUcNNVZQ9RLlg==}
++    engines: {node: '>=18'}
++    cpu: [arm]
++    os: [android]
++
+   '@esbuild/android-arm@0.28.1':
+     resolution: {integrity: sha512-0k2F129Xdio1TdJfzJ8sy1Q47vUD2NnwdhiAf7drUN1EBTfPf4hsFCtmMgu/6m8JSzsBrlmVjudMBQqOfG8usQ==}
+     engines: {node: '>=18'}
+     cpu: [arm]
+     os: [android]
+ 
++  '@esbuild/android-x64@0.25.12':
++    resolution: {integrity: sha512-5jbb+2hhDHx5phYR2By8GTWEzn6I9UqR11Kwf22iKbNpYrsmRB18aX/9ivc5cabcUiAT/wM+YIZ6SG9QO6a8kg==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [android]
++
+   '@esbuild/android-x64@0.28.1':
+     resolution: {integrity: sha512-dbwY7ltSMDWsRatcRpCnES4F+im88OCUgGZjy52shC7GqHRE/cYlxNbB4Z4UpJswpcc4Qxd2oE/ufM0p61IKng==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [android]
+ 
++  '@esbuild/darwin-arm64@0.25.12':
++    resolution: {integrity: sha512-N3zl+lxHCifgIlcMUP5016ESkeQjLj/959RxxNYIthIg+CQHInujFuXeWbWMgnTo4cp5XVHqFPmpyu9J65C1Yg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [darwin]
++
+   '@esbuild/darwin-arm64@0.28.1':
+     resolution: {integrity: sha512-TZbWkQY7kvTAXbXUT7uVACR5cMHsDiSz9z7ZKAX/RTq/WJEk3QyRr0wZpNhBDX+/0CtdqUIJlOiodQcta6tY3Q==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [darwin]
+ 
++  '@esbuild/darwin-x64@0.25.12':
++    resolution: {integrity: sha512-HQ9ka4Kx21qHXwtlTUVbKJOAnmG1ipXhdWTmNXiPzPfWKpXqASVcWdnf2bnL73wgjNrFXAa3yYvBSd9pzfEIpA==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [darwin]
++
+   '@esbuild/darwin-x64@0.28.1':
+     resolution: {integrity: sha512-zfdzgK9ACBNZLI/CyHTOx81SyNbM6YXn7rxSgX97VjyiPl9W1i4Ka4fgKECEoFCKGpvBj5qArWIGgQjOwkgskQ==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [darwin]
+ 
++  '@esbuild/freebsd-arm64@0.25.12':
++    resolution: {integrity: sha512-gA0Bx759+7Jve03K1S0vkOu5Lg/85dou3EseOGUes8flVOGxbhDDh/iZaoek11Y8mtyKPGF3vP8XhnkDEAmzeg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [freebsd]
++
+   '@esbuild/freebsd-arm64@0.28.1':
+     resolution: {integrity: sha512-wG2EA8ENdEI0qhkSZMjfqrdY+ziCYCPMmtZjjIwOmXFjmyzEHn+UUxk5of+SYsjtfs3VpnlC7QLzSI5hY/rOAw==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [freebsd]
+ 
++  '@esbuild/freebsd-x64@0.25.12':
++    resolution: {integrity: sha512-TGbO26Yw2xsHzxtbVFGEXBFH0FRAP7gtcPE7P5yP7wGy7cXK2oO7RyOhL5NLiqTlBh47XhmIUXuGciXEqYFfBQ==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [freebsd]
++
+   '@esbuild/freebsd-x64@0.28.1':
+     resolution: {integrity: sha512-i7dZ9vQgnvSCzi/rYCXNgtF/U+eKZNJBzu3eTQbRgHnM7tNSizLOkRFAl3qzVc/Op/u5YkHHa4pf/3DOYHthLQ==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [freebsd]
+ 
++  '@esbuild/linux-arm64@0.25.12':
++    resolution: {integrity: sha512-8bwX7a8FghIgrupcxb4aUmYDLp8pX06rGh5HqDT7bB+8Rdells6mHvrFHHW2JAOPZUbnjUpKTLg6ECyzvas2AQ==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [linux]
++
+   '@esbuild/linux-arm64@0.28.1':
+     resolution: {integrity: sha512-yHs+0uc8+nvEAfAfxrWQKK5peSNzBc4PegcMO0EJ2hT71uA7vB8Ihg2e77R2P7SG5uYjPbHlLLmve4LLLRCf0g==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [linux]
+ 
++  '@esbuild/linux-arm@0.25.12':
++    resolution: {integrity: sha512-lPDGyC1JPDou8kGcywY0YILzWlhhnRjdof3UlcoqYmS9El818LLfJJc3PXXgZHrHCAKs/Z2SeZtDJr5MrkxtOw==}
++    engines: {node: '>=18'}
++    cpu: [arm]
++    os: [linux]
++
+   '@esbuild/linux-arm@0.28.1':
+     resolution: {integrity: sha512-qVXBOHQS+d5Y722GwJzJUtOLlX7km3CraOaGormF1pDtPd2C/l1SHRPgjLunLGe51Sh5YYWKMFDyV4SxgMQYTQ==}
+     engines: {node: '>=18'}
+     cpu: [arm]
+     os: [linux]
+ 
++  '@esbuild/linux-ia32@0.25.12':
++    resolution: {integrity: sha512-0y9KrdVnbMM2/vG8KfU0byhUN+EFCny9+8g202gYqSSVMonbsCfLjUO+rCci7pM0WBEtz+oK/PIwHkzxkyharA==}
++    engines: {node: '>=18'}
++    cpu: [ia32]
++    os: [linux]
++
+   '@esbuild/linux-ia32@0.28.1':
+     resolution: {integrity: sha512-d1z4ZuP0ajrfz/FhGT4vv278rX8KnPPJx8i5+AtK7TYbx9Le9F1hyzurZpkEyjkGa9dUGhQow4C1NmeGvqxN2w==}
+     engines: {node: '>=18'}
+     cpu: [ia32]
+     os: [linux]
+ 
++  '@esbuild/linux-loong64@0.25.12':
++    resolution: {integrity: sha512-h///Lr5a9rib/v1GGqXVGzjL4TMvVTv+s1DPoxQdz7l/AYv6LDSxdIwzxkrPW438oUXiDtwM10o9PmwS/6Z0Ng==}
++    engines: {node: '>=18'}
++    cpu: [loong64]
++    os: [linux]
++
+   '@esbuild/linux-loong64@0.28.1':
+     resolution: {integrity: sha512-M5sRjUVZrkm1OAPR3dlOYzNmN+loZKGVi1VUQGrwuqLcbR6qeAz+famMhjASeH3YVKvZz+zT1jlh/keC3Rj/lg==}
+     engines: {node: '>=18'}
+     cpu: [loong64]
+     os: [linux]
+ 
++  '@esbuild/linux-mips64el@0.25.12':
++    resolution: {integrity: sha512-iyRrM1Pzy9GFMDLsXn1iHUm18nhKnNMWscjmp4+hpafcZjrr2WbT//d20xaGljXDBYHqRcl8HnxbX6uaA/eGVw==}
++    engines: {node: '>=18'}
++    cpu: [mips64el]
++    os: [linux]
++
+   '@esbuild/linux-mips64el@0.28.1':
+     resolution: {integrity: sha512-mRObBZeHh2OxcBFPWE/FjylkRgZdYuiTR3vaTozquCGOH14iP9oN4x4Ge81CoIDYQrXmIxpFumJBu5MtZpnQJQ==}
+     engines: {node: '>=18'}
+     cpu: [mips64el]
+     os: [linux]
+ 
++  '@esbuild/linux-ppc64@0.25.12':
++    resolution: {integrity: sha512-9meM/lRXxMi5PSUqEXRCtVjEZBGwB7P/D4yT8UG/mwIdze2aV4Vo6U5gD3+RsoHXKkHCfSxZKzmDssVlRj1QQA==}
++    engines: {node: '>=18'}
++    cpu: [ppc64]
++    os: [linux]
++
+   '@esbuild/linux-ppc64@0.28.1':
+     resolution: {integrity: sha512-slScBsMAb3GFDcdrCgLwZtPYRoH2H/youv10QiZyRjmsP48fznoveWytSgCI/R0ZcUgpc0ZhIUEx6LHts8yrfQ==}
+     engines: {node: '>=18'}
+     cpu: [ppc64]
+     os: [linux]
+ 
++  '@esbuild/linux-riscv64@0.25.12':
++    resolution: {integrity: sha512-Zr7KR4hgKUpWAwb1f3o5ygT04MzqVrGEGXGLnj15YQDJErYu/BGg+wmFlIDOdJp0PmB0lLvxFIOXZgFRrdjR0w==}
++    engines: {node: '>=18'}
++    cpu: [riscv64]
++    os: [linux]
++
+   '@esbuild/linux-riscv64@0.28.1':
+     resolution: {integrity: sha512-kw0owk1o0GFETUJyW0jc0G4Yzs0BHZn0JDZ8JRT088vjJYX777BAs1fDGxAC+q831qOs2DTC96mNsG2opdfyyQ==}
+     engines: {node: '>=18'}
+     cpu: [riscv64]
+     os: [linux]
+ 
++  '@esbuild/linux-s390x@0.25.12':
++    resolution: {integrity: sha512-MsKncOcgTNvdtiISc/jZs/Zf8d0cl/t3gYWX8J9ubBnVOwlk65UIEEvgBORTiljloIWnBzLs4qhzPkJcitIzIg==}
++    engines: {node: '>=18'}
++    cpu: [s390x]
++    os: [linux]
++
+   '@esbuild/linux-s390x@0.28.1':
+     resolution: {integrity: sha512-/lAIjX8aYFRByhh6L5rYtPEDRqa9de/4V/juOXcta5frjvzXO4/sqEtyytse0g3zZFuWu5cDN0MkLz2qRDD2Ag==}
+     engines: {node: '>=18'}
+     cpu: [s390x]
+     os: [linux]
+ 
++  '@esbuild/linux-x64@0.25.12':
++    resolution: {integrity: sha512-uqZMTLr/zR/ed4jIGnwSLkaHmPjOjJvnm6TVVitAa08SLS9Z0VM8wIRx7gWbJB5/J54YuIMInDquWyYvQLZkgw==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [linux]
++
+   '@esbuild/linux-x64@0.28.1':
+     resolution: {integrity: sha512-u/anNYF2mmVOEDwLtnQ1wOr3EZ9sTNGLWrsYGYwHWzGA3Si84IOkHXlbWTD1NB+9/1lcnweYKO54uhxZydNzfA==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [linux]
+ 
++  '@esbuild/netbsd-arm64@0.25.12':
++    resolution: {integrity: sha512-xXwcTq4GhRM7J9A8Gv5boanHhRa/Q9KLVmcyXHCTaM4wKfIpWkdXiMog/KsnxzJ0A1+nD+zoecuzqPmCRyBGjg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [netbsd]
++
+   '@esbuild/netbsd-arm64@0.28.1':
+     resolution: {integrity: sha512-oks0DYbLwWMmaakTsCb+zL4E+aHRVLom9IJZOAthMQEPiQmydXHkziYEsGYRx0uNV/IjEKGAV941JzH02pflqw==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [netbsd]
+ 
++  '@esbuild/netbsd-x64@0.25.12':
++    resolution: {integrity: sha512-Ld5pTlzPy3YwGec4OuHh1aCVCRvOXdH8DgRjfDy/oumVovmuSzWfnSJg+VtakB9Cm0gxNO9BzWkj6mtO1FMXkQ==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [netbsd]
++
+   '@esbuild/netbsd-x64@0.28.1':
+     resolution: {integrity: sha512-aeL6lAnN89Hz43Mlh1G8ARasbuoYvSITDEx0tHh5b7jJnHcssqgjy9Yx430GDpmCa6OyrKoS0aNRjKundRizGg==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [netbsd]
+ 
++  '@esbuild/openbsd-arm64@0.25.12':
++    resolution: {integrity: sha512-fF96T6KsBo/pkQI950FARU9apGNTSlZGsv1jZBAlcLL1MLjLNIWPBkj5NlSz8aAzYKg+eNqknrUJ24QBybeR5A==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [openbsd]
++
+   '@esbuild/openbsd-arm64@0.28.1':
+     resolution: {integrity: sha512-MEFJe5C3R8pwXdZ5Y21oo6m7ePiS0d9pWucn99O/wvyJZChoIQKrQDxKrGeW8F5+T0okTHesAmDeiHDTIq0V/Q==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [openbsd]
+ 
++  '@esbuild/openbsd-x64@0.25.12':
++    resolution: {integrity: sha512-MZyXUkZHjQxUvzK7rN8DJ3SRmrVrke8ZyRusHlP+kuwqTcfWLyqMOE3sScPPyeIXN/mDJIfGXvcMqCgYKekoQw==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [openbsd]
++
+   '@esbuild/openbsd-x64@0.28.1':
+     resolution: {integrity: sha512-i/ZLIOafE0Z8cI/XANJAixoJL/uRAoS2xOA3rb0xN+KK0K177cMAsQYkzHtBrtMXAKuAc7HGgcWiZ/sRC1Nxgw==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [openbsd]
+ 
++  '@esbuild/openharmony-arm64@0.25.12':
++    resolution: {integrity: sha512-rm0YWsqUSRrjncSXGA7Zv78Nbnw4XL6/dzr20cyrQf7ZmRcsovpcRBdhD43Nuk3y7XIoW2OxMVvwuRvk9XdASg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [openharmony]
++
+   '@esbuild/openharmony-arm64@0.28.1':
+     resolution: {integrity: sha512-ge+Z7EXFNt2BO1oAMsVpiQ8EwndV9i1xXerAeTIK7AtPs3bKFXQM7nlRxDSIUIMeueR1CNXxqztLzdNeReKBJg==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [openharmony]
+ 
++  '@esbuild/sunos-x64@0.25.12':
++    resolution: {integrity: sha512-3wGSCDyuTHQUzt0nV7bocDy72r2lI33QL3gkDNGkod22EsYl04sMf0qLb8luNKTOmgF/eDEDP5BFNwoBKH441w==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [sunos]
++
+   '@esbuild/sunos-x64@0.28.1':
+     resolution: {integrity: sha512-BEjgtECkL3vY+SaSQ6nzVfiALUeFxpawyp8Jmf5PtYhf1Ug40N1h/hxlhts+f1FvSvarEigdxS3BlSMI2PJLcQ==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [sunos]
+ 
++  '@esbuild/win32-arm64@0.25.12':
++    resolution: {integrity: sha512-rMmLrur64A7+DKlnSuwqUdRKyd3UE7oPJZmnljqEptesKM8wx9J8gx5u0+9Pq0fQQW8vqeKebwNXdfOyP+8Bsg==}
++    engines: {node: '>=18'}
++    cpu: [arm64]
++    os: [win32]
++
+   '@esbuild/win32-arm64@0.28.1':
+     resolution: {integrity: sha512-lCv9eK/H6ZJWbE7bh2nw54CZ9M2nupBxJcTsdk/QQnWkdSjKGuxmmH8/GWrlT1eMmZfn4dGcCjRte397WqfQXA==}
+     engines: {node: '>=18'}
+     cpu: [arm64]
+     os: [win32]
+ 
++  '@esbuild/win32-ia32@0.25.12':
++    resolution: {integrity: sha512-HkqnmmBoCbCwxUKKNPBixiWDGCpQGVsrQfJoVGYLPT41XWF8lHuE5N6WhVia2n4o5QK5M4tYr21827fNhi4byQ==}
++    engines: {node: '>=18'}
++    cpu: [ia32]
++    os: [win32]
++
+   '@esbuild/win32-ia32@0.28.1':
+     resolution: {integrity: sha512-zvb/mB2bSCoJOpoCBgYKKpX6YM6mJBlBUVUtVj41DlZJVEB6/0CKlRYxP5wWl1C1ILiCoAU5wZZ4q1P3qeS6Eg==}
+     engines: {node: '>=18'}
+     cpu: [ia32]
+     os: [win32]
+ 
++  '@esbuild/win32-x64@0.25.12':
++    resolution: {integrity: sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA==}
++    engines: {node: '>=18'}
++    cpu: [x64]
++    os: [win32]
++
+   '@esbuild/win32-x64@0.28.1':
+     resolution: {integrity: sha512-bm4Mowrv+GXMlpWX++EcXw/iLyd1o3+bJkC2DkWXYVvgZCqD/bSj9ctZeAMC3cIxgjRVR2Dufaiu4YPxr5gW1A==}
+     engines: {node: '>=18'}
+     cpu: [x64]
+     os: [win32]
+ 
+   '@eslint-community/eslint-utils@4.10.1':
+     resolution: {integrity: sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==}
+     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+     peerDependencies:
+@@ -583,20 +754,25 @@ packages:
+   deep-eql@5.0.2:
+     resolution: {integrity: sha512-h5k/5U50IJJFpzfL6nO9jaaumfjO/f2NjK/oYB2Djzm4p9L+3T9qWpZqZ2hAbLPuuYq9wrU08WQyBTL5GbPk5Q==}
+     engines: {node: '>=6'}
+ 
+   deep-is@0.1.4:
+     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
+ 
+   es-module-lexer@1.7.0:
+     resolution: {integrity: sha512-jEQoCwk8hyb2AZziIOLhDqpm5+2ww5uIE6lkO/6jcOCusfk6LhMHpXXfBLXTZ7Ydyt0j4VoUQv6uGNYbdW+kBA==}
+ 
++  esbuild@0.25.12:
++    resolution: {integrity: sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg==}
++    engines: {node: '>=18'}
++    hasBin: true
++
+   esbuild@0.28.1:
+     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
+     engines: {node: '>=18'}
+     hasBin: true
+ 
+   escape-string-regexp@4.0.0:
+     resolution: {integrity: sha512-TtpcNJ3XAzx3Gq8sWRzJaVajRs0uVxA2YAkdb1jm2YkPz4G6egUFAyA3n5vtEIZefPk5Wa4UXbKuS5fKkJWdgA==}
+     engines: {node: '>=10'}
+ 
+   eslint-scope@8.4.0:
+@@ -683,20 +859,23 @@ packages:
+     engines: {node: '>=16'}
+ 
+   flatted@3.4.3:
+     resolution: {integrity: sha512-/zipXxyO6rGvuNGDiULY9MvEGSkb2gaG4GGH4ygMi0ZZzyMHdUZBmntJmx5x1G2VuPytCwGN4xsJP6cw+sK+vQ==}
+ 
+   fsevents@2.3.3:
+     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
+     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
+     os: [darwin]
+ 
++  get-tsconfig@4.14.0:
++    resolution: {integrity: sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA==}
++
+   glob-parent@6.0.2:
+     resolution: {integrity: sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A==}
+     engines: {node: '>=10.13.0'}
+ 
+   globals@14.0.0:
+     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
+     engines: {node: '>=18'}
+ 
+   has-flag@4.0.0:
+     resolution: {integrity: sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ==}
+@@ -830,20 +1009,23 @@ packages:
+     engines: {node: '>= 0.8.0'}
+ 
+   punycode@2.3.1:
+     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
+     engines: {node: '>=6'}
+ 
+   resolve-from@4.0.0:
+     resolution: {integrity: sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g==}
+     engines: {node: '>=4'}
+ 
++  resolve-pkg-maps@1.0.0:
++    resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
++
+   rollup@4.62.3:
+     resolution: {integrity: sha512-Gu0c0iH9FzgX1L1t7ByIbbS3Vmdz+6KHm/EsqmmC71gUQ82yvZRkTK6XzrFObSka91WUVdynqp6nsfilzr5k6Q==}
+     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
+     hasBin: true
+ 
+   semver@7.8.5:
+     resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
+     engines: {node: '>=10'}
+     hasBin: true
+ 
+@@ -900,20 +1082,25 @@ packages:
+   tinyspy@4.0.4:
+     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
+     engines: {node: '>=14.0.0'}
+ 
+   ts-api-utils@2.5.0:
+     resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
+     engines: {node: '>=18.12'}
+     peerDependencies:
+       typescript: '>=4.8.4'
+ 
++  tsx@4.20.6:
++    resolution: {integrity: sha512-ytQKuwgmrrkDTFP4LjR0ToE2nqgy886GpvRSpU0JAnrdBYppuY5rLkRUYPU1yCryb24SsKBTL/hlDQAEFVwtZg==}
++    engines: {node: '>=18.0.0'}
++    hasBin: true
++
+   type-check@0.4.0:
+     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
+     engines: {node: '>= 0.8.0'}
+ 
+   typescript-eslint@8.65.0:
+     resolution: {integrity: sha512-/ggrHAwyjENDusvyxbuqxAC2dTnZg/Z8F+fgQtYIz+L6n/9HfSlEZcFGV/NsMNa6CkGk0xUjUAFwC0vHOflvIA==}
+     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+     peerDependencies:
+       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
+       typescript: '>=4.8.4 <6.1.0'
+@@ -1013,97 +1200,178 @@ packages:
+     hasBin: true
+ 
+   word-wrap@1.2.5:
+     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
+     engines: {node: '>=0.10.0'}
+ 
+   yocto-queue@0.1.0:
+     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
+     engines: {node: '>=10'}
+ 
++  zod@4.1.12:
++    resolution: {integrity: sha512-JInaHOamG8pt5+Ey8kGmdcAcg3OL9reK8ltczgHTAwNhMys/6ThXHityHxVV2p3fkw/c+MAvBHFVYHFZDmjMCQ==}
++
+ snapshots:
+ 
++  '@esbuild/aix-ppc64@0.25.12':
++    optional: true
++
+   '@esbuild/aix-ppc64@0.28.1':
+     optional: true
+ 
++  '@esbuild/android-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/android-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/android-arm@0.25.12':
++    optional: true
++
+   '@esbuild/android-arm@0.28.1':
+     optional: true
+ 
++  '@esbuild/android-x64@0.25.12':
++    optional: true
++
+   '@esbuild/android-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/darwin-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/darwin-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/darwin-x64@0.25.12':
++    optional: true
++
+   '@esbuild/darwin-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/freebsd-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/freebsd-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/freebsd-x64@0.25.12':
++    optional: true
++
+   '@esbuild/freebsd-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/linux-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-arm@0.25.12':
++    optional: true
++
+   '@esbuild/linux-arm@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-ia32@0.25.12':
++    optional: true
++
+   '@esbuild/linux-ia32@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-loong64@0.25.12':
++    optional: true
++
+   '@esbuild/linux-loong64@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-mips64el@0.25.12':
++    optional: true
++
+   '@esbuild/linux-mips64el@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-ppc64@0.25.12':
++    optional: true
++
+   '@esbuild/linux-ppc64@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-riscv64@0.25.12':
++    optional: true
++
+   '@esbuild/linux-riscv64@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-s390x@0.25.12':
++    optional: true
++
+   '@esbuild/linux-s390x@0.28.1':
+     optional: true
+ 
++  '@esbuild/linux-x64@0.25.12':
++    optional: true
++
+   '@esbuild/linux-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/netbsd-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/netbsd-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/netbsd-x64@0.25.12':
++    optional: true
++
+   '@esbuild/netbsd-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/openbsd-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/openbsd-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/openbsd-x64@0.25.12':
++    optional: true
++
+   '@esbuild/openbsd-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/openharmony-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/openharmony-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/sunos-x64@0.25.12':
++    optional: true
++
+   '@esbuild/sunos-x64@0.28.1':
+     optional: true
+ 
++  '@esbuild/win32-arm64@0.25.12':
++    optional: true
++
+   '@esbuild/win32-arm64@0.28.1':
+     optional: true
+ 
++  '@esbuild/win32-ia32@0.25.12':
++    optional: true
++
+   '@esbuild/win32-ia32@0.28.1':
+     optional: true
+ 
++  '@esbuild/win32-x64@0.25.12':
++    optional: true
++
+   '@esbuild/win32-x64@0.28.1':
+     optional: true
+ 
+   '@eslint-community/eslint-utils@4.10.1(eslint@9.39.5)':
+     dependencies:
+       eslint: 9.39.5
+       eslint-visitor-keys: 3.4.3
+ 
+   '@eslint-community/regexpp@4.12.2': {}
+ 
+@@ -1346,27 +1614,27 @@ snapshots:
+       eslint-visitor-keys: 5.0.1
+ 
+   '@vitest/expect@3.2.7':
+     dependencies:
+       '@types/chai': 5.2.3
+       '@vitest/spy': 3.2.7
+       '@vitest/utils': 3.2.7
+       chai: 5.3.3
+       tinyrainbow: 2.0.0
+ 
+-  '@vitest/mocker@3.2.7(vite@7.3.6(@types/node@22.20.1))':
++  '@vitest/mocker@3.2.7(vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6))':
+     dependencies:
+       '@vitest/spy': 3.2.7
+       estree-walker: 3.0.3
+       magic-string: 0.30.21
+     optionalDependencies:
+-      vite: 7.3.6(@types/node@22.20.1)
++      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
+ 
+   '@vitest/pretty-format@3.2.7':
+     dependencies:
+       tinyrainbow: 2.0.0
+ 
+   '@vitest/runner@3.2.7':
+     dependencies:
+       '@vitest/utils': 3.2.7
+       pathe: 2.0.3
+       strip-literal: 3.1.0
+@@ -1457,20 +1725,49 @@ snapshots:
+   debug@4.4.3:
+     dependencies:
+       ms: 2.1.3
+ 
+   deep-eql@5.0.2: {}
+ 
+   deep-is@0.1.4: {}
+ 
+   es-module-lexer@1.7.0: {}
+ 
++  esbuild@0.25.12:
++    optionalDependencies:
++      '@esbuild/aix-ppc64': 0.25.12
++      '@esbuild/android-arm': 0.25.12
++      '@esbuild/android-arm64': 0.25.12
++      '@esbuild/android-x64': 0.25.12
++      '@esbuild/darwin-arm64': 0.25.12
++      '@esbuild/darwin-x64': 0.25.12
++      '@esbuild/freebsd-arm64': 0.25.12
++      '@esbuild/freebsd-x64': 0.25.12
++      '@esbuild/linux-arm': 0.25.12
++      '@esbuild/linux-arm64': 0.25.12
++      '@esbuild/linux-ia32': 0.25.12
++      '@esbuild/linux-loong64': 0.25.12
++      '@esbuild/linux-mips64el': 0.25.12
++      '@esbuild/linux-ppc64': 0.25.12
++      '@esbuild/linux-riscv64': 0.25.12
++      '@esbuild/linux-s390x': 0.25.12
++      '@esbuild/linux-x64': 0.25.12
++      '@esbuild/netbsd-arm64': 0.25.12
++      '@esbuild/netbsd-x64': 0.25.12
++      '@esbuild/openbsd-arm64': 0.25.12
++      '@esbuild/openbsd-x64': 0.25.12
++      '@esbuild/openharmony-arm64': 0.25.12
++      '@esbuild/sunos-x64': 0.25.12
++      '@esbuild/win32-arm64': 0.25.12
++      '@esbuild/win32-ia32': 0.25.12
++      '@esbuild/win32-x64': 0.25.12
++
+   esbuild@0.28.1:
+     optionalDependencies:
+       '@esbuild/aix-ppc64': 0.28.1
+       '@esbuild/android-arm': 0.28.1
+       '@esbuild/android-arm64': 0.28.1
+       '@esbuild/android-x64': 0.28.1
+       '@esbuild/darwin-arm64': 0.28.1
+       '@esbuild/darwin-x64': 0.28.1
+       '@esbuild/freebsd-arm64': 0.28.1
+       '@esbuild/freebsd-x64': 0.28.1
+@@ -1591,20 +1888,24 @@ snapshots:
+   flat-cache@4.0.1:
+     dependencies:
+       flatted: 3.4.3
+       keyv: 4.5.4
+ 
+   flatted@3.4.3: {}
+ 
+   fsevents@2.3.3:
+     optional: true
+ 
++  get-tsconfig@4.14.0:
++    dependencies:
++      resolve-pkg-maps: 1.0.0
++
+   glob-parent@6.0.2:
+     dependencies:
+       is-glob: 4.0.3
+ 
+   globals@14.0.0: {}
+ 
+   has-flag@4.0.0: {}
+ 
+   ignore@5.3.2: {}
+ 
+@@ -1710,20 +2011,22 @@ snapshots:
+       nanoid: 3.3.16
+       picocolors: 1.1.1
+       source-map-js: 1.2.1
+ 
+   prelude-ls@1.2.1: {}
+ 
+   punycode@2.3.1: {}
+ 
+   resolve-from@4.0.0: {}
+ 
++  resolve-pkg-maps@1.0.0: {}
++
+   rollup@4.62.3:
+     dependencies:
+       '@types/estree': 1.0.9
+     optionalDependencies:
+       '@rollup/rollup-android-arm-eabi': 4.62.3
+       '@rollup/rollup-android-arm64': 4.62.3
+       '@rollup/rollup-darwin-arm64': 4.62.3
+       '@rollup/rollup-darwin-x64': 4.62.3
+       '@rollup/rollup-freebsd-arm64': 4.62.3
+       '@rollup/rollup-freebsd-x64': 4.62.3
+@@ -1786,20 +2089,27 @@ snapshots:
+   tinypool@1.1.1: {}
+ 
+   tinyrainbow@2.0.0: {}
+ 
+   tinyspy@4.0.4: {}
+ 
+   ts-api-utils@2.5.0(typescript@5.9.3):
+     dependencies:
+       typescript: 5.9.3
+ 
++  tsx@4.20.6:
++    dependencies:
++      esbuild: 0.25.12
++      get-tsconfig: 4.14.0
++    optionalDependencies:
++      fsevents: 2.3.3
++
+   type-check@0.4.0:
+     dependencies:
+       prelude-ls: 1.2.1
+ 
+   typescript-eslint@8.65.0(eslint@9.39.5)(typescript@5.9.3):
+     dependencies:
+       '@typescript-eslint/eslint-plugin': 8.65.0(@typescript-eslint/parser@8.65.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)
+       '@typescript-eslint/parser': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+       '@typescript-eslint/typescript-estree': 8.65.0(typescript@5.9.3)
+       '@typescript-eslint/utils': 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+@@ -1809,77 +2119,78 @@ snapshots:
+       - supports-color
+ 
+   typescript@5.9.3: {}
+ 
+   undici-types@6.21.0: {}
+ 
+   uri-js@4.4.1:
+     dependencies:
+       punycode: 2.3.1
+ 
+-  vite-node@3.2.4(@types/node@22.20.1):
++  vite-node@3.2.4(@types/node@22.20.1)(tsx@4.20.6):
+     dependencies:
+       cac: 6.7.14
+       debug: 4.4.3
+       es-module-lexer: 1.7.0
+       pathe: 2.0.3
+-      vite: 7.3.6(@types/node@22.20.1)
++      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
+     transitivePeerDependencies:
+       - '@types/node'
+       - jiti
+       - less
+       - lightningcss
+       - sass
+       - sass-embedded
+       - stylus
+       - sugarss
+       - supports-color
+       - terser
+       - tsx
+       - yaml
+ 
+-  vite@7.3.6(@types/node@22.20.1):
++  vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6):
+     dependencies:
+       esbuild: 0.28.1
+       fdir: 6.5.0(picomatch@4.0.5)
+       picomatch: 4.0.5
+       postcss: 8.5.24
+       rollup: 4.62.3
+       tinyglobby: 0.2.17
+     optionalDependencies:
+       '@types/node': 22.20.1
+       fsevents: 2.3.3
++      tsx: 4.20.6
+ 
+-  vitest@3.2.7(@types/node@22.20.1):
++  vitest@3.2.7(@types/node@22.20.1)(tsx@4.20.6):
+     dependencies:
+       '@types/chai': 5.2.3
+       '@vitest/expect': 3.2.7
+-      '@vitest/mocker': 3.2.7(vite@7.3.6(@types/node@22.20.1))
++      '@vitest/mocker': 3.2.7(vite@7.3.6(@types/node@22.20.1)(tsx@4.20.6))
+       '@vitest/pretty-format': 3.2.7
+       '@vitest/runner': 3.2.7
+       '@vitest/snapshot': 3.2.7
+       '@vitest/spy': 3.2.7
+       '@vitest/utils': 3.2.7
+       chai: 5.3.3
+       debug: 4.4.3
+       expect-type: 1.4.0
+       magic-string: 0.30.21
+       pathe: 2.0.3
+       picomatch: 4.0.5
+       std-env: 3.10.0
+       tinybench: 2.9.0
+       tinyexec: 0.3.2
+       tinyglobby: 0.2.17
+       tinypool: 1.1.1
+       tinyrainbow: 2.0.0
+-      vite: 7.3.6(@types/node@22.20.1)
+-      vite-node: 3.2.4(@types/node@22.20.1)
++      vite: 7.3.6(@types/node@22.20.1)(tsx@4.20.6)
++      vite-node: 3.2.4(@types/node@22.20.1)(tsx@4.20.6)
+       why-is-node-running: 2.3.0
+     optionalDependencies:
+       '@types/node': 22.20.1
+     transitivePeerDependencies:
+       - jiti
+       - less
+       - lightningcss
+       - msw
+       - sass
+       - sass-embedded
+@@ -1895,10 +2206,12 @@ snapshots:
+       isexe: 2.0.0
+ 
+   why-is-node-running@2.3.0:
+     dependencies:
+       siginfo: 2.0.0
+       stackback: 0.0.2
+ 
+   word-wrap@1.2.5: {}
+ 
+   yocto-queue@0.1.0: {}
++
++  zod@4.1.12: {}
