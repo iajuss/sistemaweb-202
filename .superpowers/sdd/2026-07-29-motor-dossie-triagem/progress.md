@@ -25,3 +25,10 @@ Task 3: open security pending — JWT/JWKS token verification and the real realm
 - Task 10: subagents — one implementer followed by an independent reviewer; retain TDD and verification.
 - Task 11: inline — no separate reviewer; retain TDD and verification.
 - Task 12: inline — no separate reviewer; retain TDD and verification.
+
+Task 3: checkpoint — `a7a9d2d` commits the VerifiedPrincipal, opaque operation-capability, tenant+debtor observation-access, development-provider, and JWT/JWKS-prohibition changes. Observations remain immutable tenant+debtor facts; wallet is authorization topology only and no wallet backfill was written.
+
+Task 3: checkpoint evidence — Docker Compose migration failed with Prisma `P3015`: the removed `20260730221000_observation_wallet_scope` migration left an empty directory without `migration.sql`. Correction pending: delete that empty directory, then recreate the development Compose stack (the development DB reset is authorized) and rerun Compose.
+
+Task 3: pending — run the full suite with PostgreSQL/RLS active after Compose migration succeeds.
+Task 3: pending — run a scoped independent re-review of the authentication critical-bypass correction range, confirming the bypasses remain closed and no new path was opened.
