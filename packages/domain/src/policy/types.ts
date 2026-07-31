@@ -41,7 +41,7 @@ export interface PolicyDefinition {
   };
   /** R$ 50.000,00 in integer cents. Money never becomes a float. */
   readonly valorElevadoCentavos: bigint;
-  readonly multiplosTitulos: number;
+  readonly minimoDeTitulos: number;
   readonly priorities: Readonly<Record<PolicyCategory, number>>;
 }
 

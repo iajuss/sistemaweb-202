@@ -1120,3 +1120,39 @@ confiança do vínculo recusado é 0. Recusa é resposta, não incerteza, então
 mais fraco está sendo lido errado nesse caso. É anterior a esta mudança — vale
 igual para `NAO_ENCONTRADO` — e mexer nisso é mudança de política com bump de
 versão. Fica anotado para decisão sua.
+
+### Dois defeitos achados rodando o sistema
+
+Suíte: **505 unitários** (era 503), 0 falhas. `lint` e `typecheck` em 0.
+
+**1. `multiplos_titulos_em_aberto` não se aplicava a uma carteira com dois
+títulos. A avaliação está certa; o nome estava errado.** A política declara
+`MINIMO_DE_TITULOS = 3` e os casos calculados à mão foram calibrados com três —
+`UM_SINAL` vale 0.15 com três títulos. O que mentia era o rótulo: "múltiplos" se
+lê como dois ou mais. Sinal nomeado é a unidade pela qual uma pessoa revisa
+decisão automatizada, e isso é exigência legal, não recurso; nome que descreve
+mal a própria regra é defeito na explicação. Renomeado para
+`tres_ou_mais_titulos_em_aberto`, com a constante virando `MINIMO_DE_TITULOS` e
+o campo da política `minimoDeTitulos`. **Peso e limiar não se mexeram** — mexer
+mudaria a classificação de gente real, e o que estava quebrado era a etiqueta.
+Os dois goldens de prompt acompanham.
+
+O teste que prende: o sinal aplica a três e não a dois, **e** a lista de sinais
+da política não contém mais o nome antigo. Os dois foram vistos vermelhos antes.
+
+**2. Dinheiro saía como `R$ 29175886.44`.** `packages/contracts/src/format.ts`
+(commit anterior) é a formatação brasileira e mora na borda de apresentação; a
+visão por papel já a usa em valor e em data. Auditei as outras superfícies que
+uma pessoa lê: o relatório de quarentena carrega número de linha e motivo, sem
+valor; a saída de console da demo imprime pontuação e não dinheiro; mensagens de
+erro são códigos. A projeção de prompt fica como está, por sua instrução. Fora
+isso, o único lugar humano que renderiza dinheiro é a UI da Task 12, que nasce
+usando `formatBrlFromCents`.
+
+**Versão de política mantida em `2026-07-A`, e é decisão consciente.** Pesos,
+faixas e limiares declarados não mudaram. A correção do delta alinhou a
+implementação à regra que a política já enunciava — "a lista não encontrou esta
+pessoa" estava implementado como "o estado da fonte é `NAO_ENCONTRADO`" — e a
+renomeação é rótulo. Nenhuma classificação está armazenada para ser invalidada:
+elas são computadas na leitura. Se você preferir tratar como política nova, é
+uma constante.

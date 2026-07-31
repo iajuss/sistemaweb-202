@@ -83,7 +83,7 @@ alguém vai pagar, e não deve ser apresentada nem usada como se estimasse.
 - divida_ativa_confirmada: não aplicado, peso 0.4, contribuição 0, sentido AGRAVANTE, fonte pgfn_dados_abertos_presente
 - presenca_na_lista_de_devedores: não aplicado, peso 0.25, contribuição 0, sentido AGRAVANTE, fonte pgfn_lista_presente
 - valor_elevado_em_aberto: aplicado, peso 0.2, contribuição 0.2, sentido AGRAVANTE, fonte carteira_valor_em_aberto
-- multiplos_titulos_em_aberto: aplicado, peso 0.15, contribuição 0.15, sentido AGRAVANTE, fonte carteira_titulos
+- tres_ou_mais_titulos_em_aberto: aplicado, peso 0.15, contribuição 0.15, sentido AGRAVANTE, fonte carteira_titulos
 - pgfn_regularidade_indiciada_por_delta: não aplicado, peso -0.3, contribuição 0, sentido MITIGADOR, fonte pgfn_dados_abertos_presente+pgfn_lista_presente
 - vinculo_societario_qsa_contextual: não aplicado, peso 0, contribuição 0, sentido CONTEXTUAL, fonte qsa_vinculo
 

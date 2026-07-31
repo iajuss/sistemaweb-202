@@ -15,7 +15,7 @@ import type { PolicyDefinition, SignalDefinition } from "./types.js";
  */
 
 const VALOR_ELEVADO_CENTAVOS = 5_000_000n;
-const MULTIPLOS_TITULOS = 3;
+const MINIMO_DE_TITULOS = 3;
 
 function campo(
   dossier: DossierSnapshot,
@@ -120,12 +120,12 @@ const SIGNALS: readonly SignalDefinition[] = [
       },
     },
     {
-      nome: "multiplos_titulos_em_aberto",
+      nome: "tres_ou_mais_titulos_em_aberto",
       peso: 0.15,
       sentido: "AGRAVANTE",
       fonte: "carteira_titulos",
       aplica: (dossier) =>
-        lista(dossier, "carteira_titulos").length >= MULTIPLOS_TITULOS,
+        lista(dossier, "carteira_titulos").length >= MINIMO_DE_TITULOS,
     },
     {
       nome: "pgfn_regularidade_indiciada_por_delta",
@@ -149,7 +149,7 @@ const SIGNALS: readonly SignalDefinition[] = [
 export const POLICY_2026_07_A: PolicyDefinition = Object.freeze({
   version: "2026-07-A",
   valorElevadoCentavos: VALOR_ELEVADO_CENTAVOS,
-  multiplosTitulos: MULTIPLOS_TITULOS,
+  minimoDeTitulos: MINIMO_DE_TITULOS,
   thresholds: Object.freeze({ intensiva: 0.7, padrao: 0.3 }),
   priorities: Object.freeze({
     COBRANCA_INTENSIVA: 0,

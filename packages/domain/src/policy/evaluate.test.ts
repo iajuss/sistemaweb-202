@@ -309,6 +309,39 @@ describe("the PGFN regularity delta", () => {
   });
 });
 
+/**
+ * Found by running the system: a wallet listing `DEMO-001` and `DEMO-002` did
+ * not get the signal. The evaluation is right — the policy declares a minimum
+ * of three — and the **name** was wrong: "múltiplos" reads as two or more.
+ *
+ * A named signal is the unit a person reviews an automated decision by, which
+ * is a legal requirement rather than a feature, so a name that misdescribes
+ * its own rule is a defect in the explanation itself. The weights were
+ * hand-calibrated at three and are not moved here; the label is.
+ */
+describe("the recurrence signal is named after the rule it applies", () => {
+  it("applies at three open titles and not at two", () => {
+    const dois = evaluate({
+      ...UM_SINAL,
+      carteira: { cents: 1_000_000n, titulos: 2 },
+    });
+    const tres = evaluate({
+      ...UM_SINAL,
+      carteira: { cents: 1_000_000n, titulos: 3 },
+    });
+
+    expect(applied(dois, "tres_ou_mais_titulos_em_aberto")).toBe(false);
+    expect(applied(tres, "tres_ou_mais_titulos_em_aberto")).toBe(true);
+  });
+
+  it("promises no threshold the policy does not apply", () => {
+    expect(POLICY_2026_07_A.signals.map((signal) => signal.nome)).not.toContain(
+      "multiplos_titulos_em_aberto",
+    );
+    expect(POLICY_2026_07_A.minimoDeTitulos).toBe(3);
+  });
+});
+
 describe("the QSA signal carries no weight", () => {
   it("declares zero weight and zero contribution", () => {
     const result = evaluate(CASA_CHEIA);
