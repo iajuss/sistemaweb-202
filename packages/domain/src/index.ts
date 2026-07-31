@@ -64,3 +64,45 @@ export { IdentityRefSchema } from "./identity.js";
 export type { IdentityRef } from "./identity.js";
 export { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
 export type { SourceStatus } from "./source-status.js";
+export {
+  CARTEIRA_SLICE_ID,
+  PGFN_LISTA_SLICE_ID,
+  PGFN_OPEN_DATA_SYSTEMS,
+  SOURCE_NAMES,
+  SOURCE_PLAN_VERSION,
+  pgfnOpenDataSliceId,
+  sourcePlanForUfs,
+} from "./observation.js";
+export type {
+  FieldAggregation,
+  FieldKind,
+  FieldValue,
+  LinkMode,
+  ObservationRecord,
+  PgfnOpenDataSystem,
+  PlannedField,
+  PlannedSource,
+  PublishedSubject,
+  RawObservation,
+  SourceName,
+  SourcePlan,
+} from "./observation.js";
+export {
+  DOSSIER_SCHEMA_VERSION,
+  assertDossierFactDiscipline,
+  composeDossier,
+  factValue,
+  isConclusive,
+  recordSupersession,
+  supersededBy,
+} from "./dossier.js";
+export type {
+  ComposeDossierInput,
+  DossierCoverage,
+  DossierFieldEnvelope,
+  DossierSnapshot,
+  DossierSupersession,
+  LinkStatus,
+  SliceCoverage,
+  SourceCoverage,
+} from "./dossier.js";

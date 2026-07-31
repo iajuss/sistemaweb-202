@@ -6,6 +6,14 @@ export {
   readAuthorizedObservation,
 } from "./authorize-actor.js";
 export { commitWalletImport, previewWalletImport } from "./import-wallet.js";
+export { composeDossierForDebtor } from "./compose-dossier.js";
+export type {
+  ComposeDossierForDebtorInput,
+  DebtorObservationReader,
+  DossierSnapshotStore,
+  WalletDebtorReader,
+  WalletDebtorRecord,
+} from "./compose-dossier.js";
 export type {
   CommitWalletImportInput,
   ImportedTitleRecord,

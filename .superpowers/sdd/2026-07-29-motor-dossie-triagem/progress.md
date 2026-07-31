@@ -453,3 +453,61 @@ escritas em lugar nenhum:
 `packages/application/src/compose-dossier.ts` e seu teste, previstos no plano e
 inexistentes: o serviço autorizado que carrega observações do tenant + devedor,
 roda o resolver por fonte e chama `composeDossier`. É o próximo passo.
+
+### Task 6: FECHADA — `compose-dossier` na camada de aplicação
+
+Suíte: 292 testes, 0 falhas, 0 pulados (era 275). `lint`, `typecheck` e
+`generate:contracts` saem 0, sem deriva de artefato regenerado.
+
+`packages/application/src/compose-dossier.ts` é o serviço autorizado. **A ordem
+dos passos é a propriedade de segurança**, e é isso que os testes prendem:
+autorização antes de qualquer leitura, vínculo com a carteira antes de qualquer
+observação, resolver por fonte sobre os subjects daquela fonte. Nada aqui decide
+o que um match significa — isso fica no domínio, onde `vinculoConfirmado` é
+derivado e não pode ser entregue de fora.
+
+Três portas novas, todas com `VerifiedPrincipal` + `AuthorizedOperation`:
+`WalletDebtorReader` (devedor como a carteira o tem, com CPF decifrado só em
+memória para o matcher), `DebtorObservationReader` e `DossierSnapshotStore`.
+
+**Decisões tomadas inline, não cobertas por ADR:**
+
+1. **`WalletDebtorReader` é escopado por carteira, e devolver `null` é uma
+   recusa, não um dossiê vazio.** A observação é fato tenant + devedor sem
+   `walletId` (ADR 020); o que a carteira autoriza é o *vínculo atual* com o
+   devedor, e é aqui que ele é conferido. Capability sobre a carteira não é
+   capability sobre todo mundo do tenant. Erro `DEVEDOR_FORA_DA_CARTEIRA`, sem
+   CPF e sem id do devedor na mensagem — recusa não pode virar oráculo de quem
+   existe em qual carteira, e há teste que falha se o CPF aparecer.
+2. **Observação fora do plano é filtrada, não é erro.** Um devedor acumula
+   observações de vários planos: uma slice `SIDA|RJ` lida mês passado é fato
+   armazenado legítimo, e não pode explodir um dossiê que declarou SP. O
+   domínio continua recusando observação fora do plano — a mudança é que ele
+   nunca recebe uma. Foi encontrada porque o filtro original era
+   **infalsificável**: com ou sem ele o domínio lançava, então nenhum teste
+   conseguia derrubá-lo. Guarda que nenhum teste derruba é garantia falsa
+   (defeito I-4), então virou comportamento observável e ganhou teste.
+3. **O resolver não roda sobre fonte não consultada.** Rodá-lo sobre lista
+   vazia carimbaria `resolver_version` num dossiê onde nada foi lido.
+4. **Subjects são deduplicados por id antes do resolver.** A mesma pessoa
+   publicada aparece em SIDA e FGTS; resolvê-la como dois candidatos fabricaria
+   um empate entre alguém e si mesmo e recusaria um match que não está em
+   dúvida.
+
+**Matriz de mutação** — cada mutação derruba exatamente os testes que a
+reivindicam, e nenhum outro:
+
+| Mutação | Testes que falham |
+|---|---|
+| `READ_DOSSIER` rebaixado para `READ_ACTIONABLE` | 14 |
+| Vínculo com a carteira substituído por devedor vazio | 2 (`refuses a debtor the wallet does not contain`, `never names the CPF in the refusal`) |
+| Resolver rodando sobre fonte não consultada | 1 (`leaves the resolver version null when no source was consulted`) |
+| Dedupe de subjects removido | 1 (`does not turn one person appearing in two slices into an ambiguity`) |
+| Filtro de plano removido | 1 (`ignores an observation for a slice outside this dossier's plan`) |
+
+**Pendência que atravessa para a Task 6.5:** `assertDossierFactDiscipline`
+continua sem chamador. O lugar dela é a leitura de snapshot vinda de fora —
+banco ou upcast de schema — que nasce na 6.5. Lá ela precisa ser chamada **e**
+ganhar o teste que falha quando a chamada é removida.
+
+Próximo: Task 6.5 — persistência de carteira e observações em PostgreSQL.
