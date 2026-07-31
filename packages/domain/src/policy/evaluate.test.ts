@@ -1,0 +1,310 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  dossierFrom,
+  type DossierSpec,
+} from "../../../../fixtures/policy/dossiers.js";
+
+import { evaluatePolicy } from "./evaluate.js";
+import { POLICY_2026_07_A } from "./policy-2026-07-a.js";
+
+/**
+ * Every expectation below was calculated by hand before the evaluator existed.
+ *
+ * Weights of policy `2026-07-A`:
+ *
+ * | sinal                                 | peso  | sentido     |
+ * |---------------------------------------|-------|-------------|
+ * | divida_ativa_confirmada               |  0.40 | AGRAVANTE   |
+ * | presenca_na_lista_de_devedores        |  0.25 | AGRAVANTE   |
+ * | valor_elevado_em_aberto               |  0.20 | AGRAVANTE   |
+ * | multiplos_titulos_em_aberto           |  0.15 | AGRAVANTE   |
+ * | pgfn_regularidade_indiciada_por_delta | -0.30 | MITIGADOR   |
+ * | vinculo_societario_qsa_contextual     |  0.00 | CONTEXTUAL  |
+ *
+ * Bands: `COBRANCA_INTENSIVA` ≥ 0.70, `COBRANCA_PADRAO` ≥ 0.30, below that
+ * `MONITORAMENTO`. Insufficient coverage short-circuits to
+ * `DADOS_INSUFICIENTES` whatever the score — a category, never a lower number.
+ */
+
+const CARTEIRA_PESADA = { cents: 8_000_000n, titulos: 3 } as const;
+const CARTEIRA_LEVE = { cents: 1_000_000n, titulos: 3 } as const;
+
+/** 0.40 + 0.25 + 0.20 + 0.15 = 1.00 */
+const CASA_CHEIA: DossierSpec = {
+  carteira: CARTEIRA_PESADA,
+  dadosAbertos: { status: "ENCONTRADO", link: "CONFIRMADO" },
+  lista: { status: "ENCONTRADO", link: "CONFIRMADO" },
+};
+
+/** 0.20 + 0.15 = 0.35 */
+const SO_CARTEIRA: DossierSpec = {
+  carteira: CARTEIRA_PESADA,
+  dadosAbertos: { status: "NAO_ENCONTRADO" },
+  lista: { status: "NAO_ENCONTRADO" },
+};
+
+/** 0.15 */
+const UM_SINAL: DossierSpec = {
+  carteira: CARTEIRA_LEVE,
+  dadosAbertos: { status: "NAO_ENCONTRADO" },
+  lista: { status: "NAO_ENCONTRADO" },
+};
+
+/** 0.40 + 0.20 + 0.15 - 0.30 = 0.45; without the delta it would be 0.75. */
+const COM_DELTA: DossierSpec = {
+  carteira: CARTEIRA_PESADA,
+  dadosAbertos: { status: "ENCONTRADO", link: "CONFIRMADO" },
+  lista: { status: "NAO_ENCONTRADO", escopoCompleto: true },
+};
+
+function evaluate(spec: DossierSpec) {
+  return evaluatePolicy(dossierFrom(spec), POLICY_2026_07_A);
+}
+
+function contribution(
+  result: ReturnType<typeof evaluate>,
+  nome: string,
+): number {
+  const signal = result.signals.find((entry) => entry.nome === nome);
+  if (!signal) {
+    throw new Error(`SINAL_AUSENTE_NO_RESULTADO:${nome}`);
+  }
+  return signal.contribuicao;
+}
+
+function applied(result: ReturnType<typeof evaluate>, nome: string): boolean {
+  return result.signals.find((entry) => entry.nome === nome)?.aplicado ?? false;
+}
+
+describe("hand-calculated cases", () => {
+  it("scores a full house at 1.00 and escalates", () => {
+    const result = evaluate(CASA_CHEIA);
+
+    expect(result.score).toBeCloseTo(1, 10);
+    expect(result.category).toBe("COBRANCA_INTENSIVA");
+    expect(result.operational_priority).toBe(0);
+    expect(result.primary_strategy).toBe("CONTATO_DIRETO_PRIORITARIO");
+    expect(result.cobertura).toBe("SUFICIENTE");
+    expect(result.confianca_global).toBeCloseTo(1, 10);
+  });
+
+  it("scores wallet facts alone at 0.35", () => {
+    const result = evaluate(SO_CARTEIRA);
+
+    expect(result.score).toBeCloseTo(0.35, 10);
+    expect(result.category).toBe("COBRANCA_PADRAO");
+    expect(result.operational_priority).toBe(1);
+    expect(contribution(result, "divida_ativa_confirmada")).toBe(0);
+  });
+
+  it("scores a single signal at 0.15 and only monitors", () => {
+    const result = evaluate(UM_SINAL);
+
+    expect(result.score).toBeCloseTo(0.15, 10);
+    expect(result.category).toBe("MONITORAMENTO");
+    expect(result.operational_priority).toBe(2);
+    expect(applied(result, "valor_elevado_em_aberto")).toBe(false);
+  });
+
+  it("declares every signal, applied or not", () => {
+    const result = evaluate(UM_SINAL);
+
+    expect(result.signals.map((entry) => entry.nome).sort()).toEqual(
+      POLICY_2026_07_A.signals.map((entry) => entry.nome).sort(),
+    );
+  });
+});
+
+describe("uncertainty never becomes a fact", () => {
+  it("does not count active debt behind a merely probable link", () => {
+    const result = evaluate({
+      ...SO_CARTEIRA,
+      dadosAbertos: { status: "ENCONTRADO", link: "PROVAVEL" },
+    });
+
+    expect(applied(result, "divida_ativa_confirmada")).toBe(false);
+    expect(result.score).toBeCloseTo(0.35, 10);
+    expect(result.category).toBe("COBRANCA_PADRAO");
+  });
+
+  it("does not count active debt behind an ambiguous link", () => {
+    const result = evaluate({
+      ...SO_CARTEIRA,
+      dadosAbertos: { status: "ENCONTRADO", link: "AMBIGUO" },
+    });
+
+    expect(applied(result, "divida_ativa_confirmada")).toBe(false);
+    expect(result.category).toBe("COBRANCA_PADRAO");
+  });
+
+  it("refuses to escalate without a confirmed identity", () => {
+    // Everything else says intensive; the identity does not. Conservative
+    // asymmetry means the lighter approach wins (ADR 016).
+    const result = evaluate({
+      carteira: CARTEIRA_PESADA,
+      dadosAbertos: { status: "ENCONTRADO", link: "CONFIRMADO" },
+      lista: { status: "ENCONTRADO", link: "AMBIGUO" },
+    });
+
+    expect(result.category).not.toBe("COBRANCA_INTENSIVA");
+  });
+});
+
+describe("coverage decides a category, never a number", () => {
+  it("returns DADOS_INSUFICIENTES when a required source errored", () => {
+    const result = evaluate({
+      carteira: CARTEIRA_PESADA,
+      dadosAbertos: { status: "ERRO_NA_FONTE" },
+      lista: { status: "NAO_ENCONTRADO" },
+    });
+
+    expect(result.cobertura).toBe("INSUFICIENTE");
+    expect(result.category).toBe("DADOS_INSUFICIENTES");
+    expect(result.operational_priority).toBe(3);
+    expect(result.primary_strategy).toBe("COLETAR_MAIS_DADOS");
+  });
+
+  it("returns DADOS_INSUFICIENTES when a source was never consulted", () => {
+    const result = evaluate({ carteira: CARTEIRA_PESADA });
+
+    expect(result.category).toBe("DADOS_INSUFICIENTES");
+  });
+
+  it("does not let a source failure read as a clean record", () => {
+    const errored = evaluate({
+      carteira: CARTEIRA_LEVE,
+      dadosAbertos: { status: "ERRO_NA_FONTE" },
+      lista: { status: "NAO_ENCONTRADO" },
+    });
+    const clean = evaluate(UM_SINAL);
+
+    // Same wallet, same score, different answer: one concluded and one did
+    // not, and the failure must never be the more comfortable outcome.
+    expect(errored.score).toBeCloseTo(clean.score, 10);
+    expect(errored.category).toBe("DADOS_INSUFICIENTES");
+    expect(clean.category).toBe("MONITORAMENTO");
+  });
+});
+
+describe("the PGFN regularity delta", () => {
+  it("applies when open data found the debt and the full list did not", () => {
+    const result = evaluate(COM_DELTA);
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(true);
+    expect(contribution(result, "pgfn_regularidade_indiciada_por_delta")).toBe(
+      -0.3,
+    );
+    expect(result.score).toBeCloseTo(0.45, 10);
+  });
+
+  it("recommends renegotiation and never escalation", () => {
+    const withDelta = evaluate(COM_DELTA);
+    const withoutDelta = evaluate({
+      ...COM_DELTA,
+      lista: { status: "NAO_ENCONTRADO", escopoCompleto: false },
+    });
+
+    // The same debtor scores 0.75 and escalates when the list cannot support
+    // the inference, and 0.45 with a collaborative strategy when it can.
+    expect(withoutDelta.score).toBeCloseTo(0.75, 10);
+    expect(withoutDelta.category).toBe("COBRANCA_INTENSIVA");
+    expect(withDelta.category).toBe("COBRANCA_PADRAO");
+    expect(withDelta.primary_strategy).toBe("RENEGOCIACAO_COLABORATIVA");
+  });
+
+  // `escopoCompleto: true` on the inconclusive cases is deliberate. Without it
+  // they would be refused by the scope check and pass while saying nothing
+  // about the status rule — the mutation that accepts any status other than
+  // ENCONTRADO survived exactly that way.
+  it.each([
+    ["a filtered list export", { status: "NAO_ENCONTRADO", escopoCompleto: false }],
+    ["an unread list", { status: "NAO_CONSULTADO", escopoCompleto: true }],
+    ["a failed list", { status: "ERRO_NA_FONTE", escopoCompleto: true }],
+    [
+      "the debtor being on the list",
+      { status: "ENCONTRADO", link: "CONFIRMADO", escopoCompleto: true },
+    ],
+  ] as const)("does not apply with %s", (_case, lista) => {
+    const result = evaluate({ ...COM_DELTA, lista });
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(false);
+  });
+
+  it.each([
+    ["unread open data", { status: "NAO_CONSULTADO" }],
+    ["failed open data", { status: "ERRO_NA_FONTE" }],
+    ["open data that found nothing", { status: "NAO_ENCONTRADO" }],
+    ["an ambiguous open-data link", { status: "ENCONTRADO", link: "AMBIGUO" }],
+    ["a merely probable open-data link", { status: "ENCONTRADO", link: "PROVAVEL" }],
+  ] as const)("does not apply with %s", (_case, dadosAbertos) => {
+    const result = evaluate({ ...COM_DELTA, dadosAbertos });
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(false);
+  });
+
+  it("is unreachable from the manual importer as it stands today", () => {
+    // The importer hard-codes `queryScope.complete = false`, because a manual
+    // export is always a cut under operator-chosen filters. The signal is
+    // therefore dead until an operator can declare a full-scope export, and
+    // that is a documented gap rather than a rule quietly relaxed here.
+    const result = evaluate({
+      ...COM_DELTA,
+      lista: { status: "NAO_ENCONTRADO" },
+    });
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(false);
+  });
+});
+
+describe("the QSA signal carries no weight", () => {
+  it("declares zero weight and zero contribution", () => {
+    const result = evaluate(CASA_CHEIA);
+    const qsa = result.signals.find(
+      (entry) => entry.nome === "vinculo_societario_qsa_contextual",
+    );
+
+    // ADR 012: being a partner in a company demonstrates no income, no
+    // liquidity and no alternative channel. Any future use needs a new ADR.
+    expect(qsa?.peso).toBe(0);
+    expect(qsa?.contribuicao).toBe(0);
+  });
+});
+
+describe("the classification explains itself", () => {
+  it("names every applied signal in readable text", () => {
+    const result = evaluate(CASA_CHEIA);
+
+    for (const signal of result.signals.filter((entry) => entry.aplicado)) {
+      expect(result.explicacao).toContain(signal.nome);
+    }
+    expect(result.explicacao.length).toBeGreaterThan(0);
+  });
+
+  it("says which sources were inconclusive when coverage fails", () => {
+    const result = evaluate({
+      carteira: CARTEIRA_LEVE,
+      dadosAbertos: { status: "ERRO_NA_FONTE" },
+      lista: { status: "NAO_ENCONTRADO" },
+    });
+
+    expect(result.explicacao).toContain("PGFN_DADOS_ABERTOS");
+  });
+
+  it("carries the policy version and the dossier it judged", () => {
+    const result = evaluate(CASA_CHEIA);
+
+    expect(result.policy_version).toBe("2026-07-A");
+    expect(result.dossier_id).toBe("dossier-1");
+  });
+
+  it("is deterministic: the same dossier yields the same classification", () => {
+    const first = evaluate(CASA_CHEIA);
+    const second = evaluate(CASA_CHEIA);
+
+    expect({ ...first, classification_id: null }).toEqual({
+      ...second,
+      classification_id: null,
+    });
+  });
+});

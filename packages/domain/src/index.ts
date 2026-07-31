@@ -106,3 +106,24 @@ export type {
   SliceCoverage,
   SourceCoverage,
 } from "./dossier.js";
+export {
+  comparePolicies,
+  evaluatePolicy,
+  orderByPriority,
+} from "./policy/evaluate.js";
+export type { PolicyComparison } from "./policy/evaluate.js";
+export { POLICY_2026_07_A } from "./policy/policy-2026-07-a.js";
+export type {
+  AppliedSignal,
+  PolicyCategory,
+  PolicyClassification,
+  PolicyDefinition,
+  PolicyStrategy,
+  SignalDefinition,
+  SignalDirection,
+} from "./policy/types.js";
+export { COLLECTION_OUTCOMES, outcomesFor, recordOutcome } from "./outcome.js";
+export type {
+  CollectionOutcome,
+  CollectionOutcomeKind,
+} from "./outcome.js";

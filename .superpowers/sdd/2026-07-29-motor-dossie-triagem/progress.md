@@ -601,3 +601,106 @@ derrubado, reaplicada do zero: banco novo, migrado desde a primeira migração,
   17 arquivos de teste. Reparo confirmado e agora documentado com precisão.
 
 Próximo: Task 7 — política de triagem, ordenação e desfechos.
+
+---
+
+## Task 7: FECHADA — política de triagem, ordenação e desfechos
+
+Suíte: 361 unitários (era 300), 0 falhas. `lint`, `typecheck` e
+`generate:contracts` saem 0, sem deriva.
+
+Política `2026-07-A`, declarativa e versionada. **Os valores esperados foram
+calculados à mão antes de existir avaliador**, e a tabela está no topo de
+`evaluate.test.ts`:
+
+| sinal | peso | sentido |
+|---|---|---|
+| `divida_ativa_confirmada` | 0.40 | AGRAVANTE |
+| `presenca_na_lista_de_devedores` | 0.25 | AGRAVANTE |
+| `valor_elevado_em_aberto` | 0.20 | AGRAVANTE |
+| `multiplos_titulos_em_aberto` | 0.15 | AGRAVANTE |
+| `pgfn_regularidade_indiciada_por_delta` | −0.30 | MITIGADOR |
+| `vinculo_societario_qsa_contextual` | 0.00 | CONTEXTUAL |
+
+Faixas: `COBRANCA_INTENSIVA` ≥ 0.70, `COBRANCA_PADRAO` ≥ 0.30, abaixo disso
+`MONITORAMENTO`. Cobertura insuficiente curto-circuita para
+`DADOS_INSUFICIENTES` qualquer que seja a pontuação — **categoria, nunca nota
+mais baixa**. Casos de mão: casa cheia 1.00, só carteira 0.35, um sinal 0.15,
+com delta 0.45 (0.75 sem ele).
+
+### O delta PGFN, que era o ponto
+
+`regularidadeIndiciadaPorDelta` exige, cumulativamente: Dados Abertos em
+`ENCONTRADO` **com vínculo `CONFIRMADO`**, Lista em `NAO_ENCONTRADO` —
+exatamente esse estado, não "qualquer coisa menos encontrado" — e escopo de
+consulta declarado íntegro. Nove casos negativos cobertos: lista filtrada, não
+consultada, com erro, com o devedor presente; Dados Abertos não consultados,
+com erro, sem achado, com vínculo `AMBIGUO` e com vínculo `PROVAVEL`. Quando
+aplica, a categoria fica **limitada** a `COBRANCA_PADRAO` e a estratégia vira
+`RENEGOCIACAO_COLABORATIVA`: o ADR 014 manda tom colaborativo, nunca escalada.
+
+**O sinal é inalcançável hoje**, e há teste dizendo isso. O importador da lista
+manual fixa `queryScope.complete = false`, porque todo export manual é recorte
+sob filtros do operador. Enquanto não existir um caminho para o operador
+declarar export integral, o delta não dispara. Preferi deixar a regra correta e
+o caminho morto documentado a afrouxar a pré-condição.
+
+### Decisões tomadas inline
+
+1. **Identidade confirmada é por fonte que devolveu registro.** A primeira
+   versão exigia vínculo confirmado em toda fonte de resolução, e um teste
+   derrubou: fonte que concluiu `NAO_ENCONTRADO` não devolveu ninguém, logo não
+   há identidade a resolver, e o vínculo não resolvido dela não é dúvida. Já
+   fonte que **devolveu registros** sob vínculo `AMBIGUO` ou `PROVAVEL` é
+   dúvida e bloqueia a escalada mesmo com outra fonte certa — escalaríamos
+   contra alguém que não sabemos ser o titular daqueles registros.
+2. **`confianca_global` não é probabilidade de pagamento.** É a fração do plano
+   efetivamente lida, multiplicada pelo elo mais fraco em que a classificação
+   se apoiou. Quando nenhum sinal se apoiou em vínculo, o fator é 1.
+3. **O mapeamento para o contrato mora em `packages/contracts`**, que já
+   dependia do domínio. `contribuicao` e `sentido` **não vão para o fio**: o
+   shape publicado do sinal é estrito e fixado pelo schema, e a contribuição de
+   cada sinal aplicado está por extenso em `explicacao`, que é o campo de que o
+   direito de revisão trata. Colocá-los no contrato é mudança de schema com
+   bump de versão, e isso pertence à fatia que desenha o contrato do agente.
+4. **`classified_at` é parâmetro do mapeador.** A avaliação é pura; relógio
+   dentro dela quebraria silenciosamente a reexecução de dossiê antigo sob
+   política nova, que é o que o ADR 016 existe para preservar.
+
+### Validação sem rótulo (ADR 016), as três pernas
+
+- **Casos calculados à mão** antes da implementação — 27 testes.
+- **Sensibilidade de ±20% por peso, um de cada vez** — 15 testes. Um por vez é
+  o ponto: mexer em todos juntos não é análise de sensibilidade, é outra
+  política. Nenhuma fixture troca de categoria. Também provado que a
+  perturbação de fato move a pontuação (0.35 para 0.31), que peso nenhum
+  resgata cobertura insuficiente, e que multiplicar o peso do QSA por 1000
+  mantém contribuição zero.
+- **Distribuição sobre carteira sintética** de 8 dossiês — 8 testes. As quatro
+  categorias aparecem, nenhuma abocanha a carteira inteira, a ordenação
+  independe da ordem de entrada e cobertura insuficiente vai para o fim da
+  fila, não para o começo.
+
+`comparePolicies` roda duas versões sobre os mesmos dossiês sem tocar em
+nenhuma classificação armazenada, e há teste de que reavaliar a original depois
+da comparação devolve o mesmo. `recordOutcome` é append-only, recusa id
+duplicado e desfecho de outro tenant, e congela cada entrada.
+
+### Matriz de mutação
+
+| Mutação | Testes que falham |
+|---|---|
+| Cobertura insuficiente deixa de forçar `DADOS_INSUFICIENTES` | 8 |
+| Exigência de escopo íntegro na lista removida | 3 |
+| Lista aceita "qualquer estado menos `ENCONTRADO`" | 2 |
+| Valor lido de `envelope.valor` em vez de `factValue` | 2 |
+| Portão conservador de identidade removido | 1 |
+| Estratégia colaborativa do delta removida | 1 |
+
+**Um defeito de teste encontrado pela própria matriz.** A mutação "qualquer
+estado menos `ENCONTRADO`" sobreviveu na primeira passada: os casos de lista
+`NAO_CONSULTADO` e `ERRO_NA_FONTE` passavam porque o escopo estava incompleto,
+não porque o estado fosse recusado. Passaram a declarar `escopoCompleto: true`,
+de modo que só a regra de estado pode recusá-los, e aí a mutação cai.
+
+Próximo: Task 11 — API agent-first, contratos e endpoint de prompt.
