@@ -352,7 +352,7 @@ As suítes são separadas porque exigem coisas diferentes:
 pnpm test:unit
 ```
 
-526 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
+534 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
 nada no ar.
 
 ```bash

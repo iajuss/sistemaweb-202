@@ -254,7 +254,7 @@ Fecha com honestidade, e isso conta a favor:
   [`docs/limitacoes-v1.md`](limitacoes-v1.md), com o que cada item é, por que não
   é alcançável hoje e o que dispara o fechamento.
 
-Se perguntarem "e os testes": 526 unitários, que rodam sem Docker, e 13 de
+Se perguntarem "e os testes": 534 unitários, que rodam sem Docker, e 13 de
 integração contra o PostgreSQL real — não contra mock.
 
 ```bash
