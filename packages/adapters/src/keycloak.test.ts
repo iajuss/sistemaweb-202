@@ -85,6 +85,33 @@ describe("identity middleware", () => {
     ).toThrow("EXPLICIT_DEVELOPMENT_IDENTITY_OPT_IN_REQUIRED");
   });
 
+  it("refuses to issue a principal from a detached method outside development", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const issueSystemWorker =
+      DevInsecureIdentityProvider.prototype.authenticateSystemWorker;
+
+    expect(() =>
+      issueSystemWorker({
+        issuer: "internal://attacker",
+        subject: "attacker-subject",
+      }),
+    ).toThrow("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
+  });
+
+  it("refuses to issue a principal from an instance that never ran the opt-in constructor", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const withoutOptIn = Object.create(
+      DevInsecureIdentityProvider.prototype,
+    ) as DevInsecureIdentityProvider;
+
+    expect(() =>
+      withoutOptIn.authenticateSystemWorker({
+        issuer: "internal://attacker",
+        subject: "attacker-subject",
+      }),
+    ).toThrow("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
+  });
+
   it("rejects a principal reflected from a legitimate principal constructor", async () => {
     const legitimate = await issueDevelopmentPrincipal({
       subject: "human-subject",

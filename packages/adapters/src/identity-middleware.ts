@@ -115,29 +115,53 @@ const DevInsecureIdentityProviderOptionsSchema = z
   })
   .strict();
 
+const optedInDevelopmentProviders = new WeakSet<DevInsecureIdentityProvider>();
+
+function assertDevelopmentEnvironment(): void {
+  if (process.env.NODE_ENV !== "development") {
+    throw new Error("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
+  }
+}
+
+/**
+ * Per-call authority. The constructor is not a trust boundary on its own: a
+ * detached prototype method or an `Object.create` instance never runs it, so
+ * every issuance path re-checks the environment and the opt-in membership.
+ */
+function assertDevelopmentIssuer(candidate: unknown): void {
+  assertDevelopmentEnvironment();
+  if (
+    !(candidate instanceof DevInsecureIdentityProvider) ||
+    !optedInDevelopmentProviders.has(candidate)
+  ) {
+    throw new Error("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
+  }
+}
+
 /**
  * Development-only fixture provider. It deliberately has no production token
  * input, so deploying it cannot silently become OIDC/JWKS verification.
  */
 export class DevInsecureIdentityProvider {
   public constructor(options: unknown) {
-    if (process.env.NODE_ENV !== "development") {
-      throw new Error("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
-    }
+    assertDevelopmentEnvironment();
     DevInsecureIdentityProviderOptionsSchema.parse(options, {
       error: () => new Error("EXPLICIT_DEVELOPMENT_IDENTITY_OPT_IN_REQUIRED"),
     });
+    optedInDevelopmentProviders.add(this);
   }
 
   public authenticateHumanKeycloak(
     validatedDevelopmentInput: unknown,
   ): VerifiedPrincipal {
+    assertDevelopmentIssuer(this);
     return issueVerifiedPrincipal(validatedDevelopmentInput, "HUMAN_KEYCLOAK");
   }
 
   public authenticateMachineAgent(
     validatedDevelopmentInput: unknown,
   ): VerifiedPrincipal {
+    assertDevelopmentIssuer(this);
     return issueVerifiedPrincipal(
       validatedDevelopmentInput,
       "AGENT_MACHINE_CREDENTIAL",
@@ -147,6 +171,7 @@ export class DevInsecureIdentityProvider {
   public authenticateSystemWorker(
     validatedDevelopmentInput: unknown,
   ): VerifiedPrincipal {
+    assertDevelopmentIssuer(this);
     return issueVerifiedPrincipal(validatedDevelopmentInput, "SYSTEM_WORKER");
   }
 }

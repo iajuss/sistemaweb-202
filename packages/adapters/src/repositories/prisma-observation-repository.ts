@@ -162,10 +162,22 @@ class PrismaObservationDatabase
   }
 }
 
+const repositoryConstructionAuthority = Object.freeze({});
+
 export class PrismaAuthorizedObservationRepository {
   private readonly writer: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
 
-  public constructor(private readonly database: PrismaObservationDatabase) {
+  /**
+   * Only the factory holds the authority object, so an exported class value
+   * cannot be turned into a repository over a caller-supplied database.
+   */
+  public constructor(
+    authority: object,
+    private readonly database: PrismaObservationDatabase,
+  ) {
+    if (authority !== repositoryConstructionAuthority) {
+      throw new Error("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
+    }
     this.writer = new TransactionalTenantScopedRepository(database);
   }
 
@@ -183,7 +195,14 @@ export class PrismaAuthorizedObservationRepository {
     id: string,
   ): Promise<ObservationPersistenceRecord | null> {
     const context = assertReadOperation(principal, operation);
-    return this.database.findAuthorized(context.tenantId, operation.walletId, id);
+    const record = await this.database.findAuthorized(
+      context.tenantId,
+      operation.walletId,
+      id,
+    );
+    // RLS is the second barrier, never the only one (ADR 020): a record whose
+    // tenant does not match the authorized operation is not readable here.
+    return record?.tenantId === context.tenantId ? record : null;
   }
 }
 
@@ -203,7 +222,10 @@ export function createPrismaObservationRepository(
   );
   const database = new PrismaObservationDatabase(client);
   return {
-    observations: new PrismaAuthorizedObservationRepository(database),
+    observations: new PrismaAuthorizedObservationRepository(
+      repositoryConstructionAuthority,
+      database,
+    ),
     disconnect: () => client.$disconnect(),
   };
 }

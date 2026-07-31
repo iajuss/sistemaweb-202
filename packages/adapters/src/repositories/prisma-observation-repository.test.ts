@@ -28,7 +28,10 @@ vi.mock("@prisma/client", () => ({
   Prisma: { JsonNull: null },
 }));
 
-import { createPrismaObservationRepository } from "./prisma-observation-repository.js";
+import {
+  createPrismaObservationRepository,
+  PrismaAuthorizedObservationRepository,
+} from "./prisma-observation-repository.js";
 
 async function authorizedOperation(input: {
   readonly kind: "AGENT" | "SYSTEM";
@@ -97,6 +100,43 @@ describe("Prisma observation repository", () => {
         client: {} as PrismaClient,
       } as unknown as string),
     ).toThrow("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
+  });
+
+  it("refuses to construct the authorized repository outside its factory", () => {
+    const RepositoryConstructor =
+      PrismaAuthorizedObservationRepository as unknown as new (
+        ...args: readonly unknown[]
+      ) => unknown;
+
+    expect(
+      () =>
+        new RepositoryConstructor({
+          $transaction: async () => null,
+        }),
+    ).toThrow("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
+  });
+
+  it("does not return an observation whose tenant differs from the authorized operation", async () => {
+    const transaction = {
+      $queryRaw: async () => [{ isSuperuser: false, canBypassRls: false }],
+      $queryRawUnsafe: async () => [],
+      observation: {
+        findFirst: async () => ({ ...observationFixture, tenantId: "tenant-b" }),
+      },
+    };
+    prismaClientFixture.client = {
+      $transaction: async <Result>(callback: (tx: typeof transaction) => Promise<Result>) =>
+        callback(transaction),
+    } as unknown as PrismaClient;
+    const repository = createPrismaObservationRepository();
+    const { principal, operation } = await authorizedOperation({
+      kind: "AGENT",
+      action: "READ_DOSSIER",
+    });
+
+    await expect(
+      repository.observations.find(principal, operation, "observation-a"),
+    ).resolves.toBeNull();
   });
 
   it("sets the transaction-local tenant before every role or authorized observation query", async () => {
