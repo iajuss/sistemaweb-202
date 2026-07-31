@@ -392,3 +392,64 @@ Next action: **Task 6 — observations, coverage and dossier composition.** The
 resolver's `AMBIGUO` and `PROVAVEL` must cross composition without becoming
 fact anywhere, and insufficient coverage must produce `DADOS_INSUFICIENTES`
 rather than a low score.
+
+---
+
+## Task 6: retomada após interrupção — estado auditado em 2026-07-31
+
+A sessão anterior parou com `a98730f` ("chore: checkpoint WIP task 6"), commit
+feito à mão, sem passar por aqui. **A auditoria contradiz a descrição de
+"interrompido no meio do RED"**: nada está em RED de teste. O que o commit
+trouxe — `packages/domain/src/dossier.ts` (533 linhas),
+`packages/domain/src/observation.ts` (196) e `packages/domain/src/dossier.test.ts`
+(705, 34 casos) — está inteiro **verde**. Suíte unitária completa: 275 testes, 0
+falhas, 0 pulados. `pnpm lint` sai 0.
+
+**O que estava realmente quebrado era o `pnpm typecheck`**, com dois erros, e é
+por isso que o passo não fechou:
+
+1. `dossier.ts:187` — `case "PRIMEIRO"` num `switch` sobre `FieldAggregation`,
+   que é `"SOMA" | "UNIAO" | "EXISTE"`. Ramo morto de um tipo que encolheu
+   durante o GREEN; `TS2678`. Removido.
+2. `dossier.test.ts:512` — cast de `FieldValue` para `{ lista: string[] }` sem
+   passar por `unknown`, recusado porque `readonly string[]` não é atribuível a
+   `string[]`; `TS2352`. Passa por `unknown` agora. O teste é o do expurgo, e o
+   cast existe justamente para violar o `readonly` e provar que o snapshot não
+   se mexe.
+
+Nenhuma das duas correções muda comportamento: a primeira apaga código
+inalcançável por tipo, a segunda é sintaxe de cast em teste. Ambas confirmadas
+pela suíte inteira verde depois.
+
+### Cobertura dos critérios de aceite pelo que já está commitado
+
+Auditei os seis critérios explicitados pelo usuário contra `dossier.test.ts`:
+
+| Critério | Onde é imposto | Teste que falharia |
+|---|---|---|
+| Composição parte do plano declarado, nunca das observações | `composeSource` itera `planned.expectedSlices`; `indexObservations` recusa `OBSERVACAO_FORA_DO_PLANO` | "calls an unobserved slice NAO_CONSULTADO, never NAO_ENCONTRADO"; "keeps a partially covered source out of NAO_ENCONTRADO"; "answers NAO_ENCONTRADO only when every declared slice was read" |
+| `AMBIGUO`/`PROVAVEL` atravessam sem virar fato | `vinculoConfirmado` derivado de `linkStatus`, nunca recebido; `factValue` só devolve sob vínculo confirmado | "carries a PROVAVEL link through without making it a fact"; "ignores a forged isFact on a link that is not CONFIRMADO"; "attributes nothing when the resolver abstained" |
+| Cobertura insuficiente é categoria, não nota | `veredito` decidido por `fontesObrigatoriasInconclusivas.length`, e `proporcao` não entra na decisão | "returns DADOS_INSUFICIENTES rather than a lower number"; "stays insufficient even when most slices concluded" |
+| Snapshot embute os valores | `copyValue` materializa; `Object.freeze` em todo nível | "keeps its values after the observation it came from is emptied"; "cannot be edited in place" |
+| `resolver_version` gravado, correção por supersessão | `resolverVersionOf` + `recordSupersession` append-only | "records the resolver version that produced the links"; "corrects by supersession and never by editing" |
+| Data do dossiê é a da composição | `composedAt` no snapshot, `coletadoEm` por envelope | "dates the dossier at composition and each field at collection"; "dates a multi-slice field at its stalest input" |
+
+Duas decisões do commit anterior que merecem registro porque não estavam
+escritas em lugar nenhum:
+
+- **`existsValue` só responde `false` sob cobertura conclusiva e vínculo
+  não-`AMBIGUO`.** "Ninguém com esse nome" é afirmação; sob abstenção do
+  resolver ou slice não lida, o campo fica `null`. É o que impede a ausência de
+  virar negativa.
+- **`assertDossierFactDiscipline` não é chamada pela composição, de propósito**,
+  e o comentário diz por quê: a composição deriva `vinculoConfirmado`, então não
+  consegue produzir violação, e guarda que nenhum teste consegue derrubar é
+  garantia falsa (defeito I-4). O lugar dela é a fronteira de leitura — que
+  ainda não existe. **Pendência aberta:** quando o leitor de snapshot nascer
+  (Task 6.5/11), a guarda precisa ser chamada lá e ganhar o teste de remoção.
+
+### O que falta para fechar a Task 6
+
+`packages/application/src/compose-dossier.ts` e seu teste, previstos no plano e
+inexistentes: o serviço autorizado que carrega observações do tenant + devedor,
+roda o resolver por fonte e chama `composeDossier`. É o próximo passo.

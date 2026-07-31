@@ -184,8 +184,6 @@ function aggregateField(
         lista: Object.freeze([...items].sort()),
       });
     }
-    case "PRIMEIRO":
-      return copyValue(linked[0]);
     case "EXISTE":
       throw new TypeError("CAMPO_EXISTE_NAO_AGREGA_VALORES");
   }

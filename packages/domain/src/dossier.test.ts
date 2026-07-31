@@ -510,7 +510,7 @@ describe("the snapshot embeds what it says", () => {
     // the values inside it are scribbled over. The snapshot embedded copies at
     // composition, so none of this can reach it.
     const smuggled = source.records[0].values
-      .pgfn_dados_abertos_inscricoes as { lista: string[] };
+      .pgfn_dados_abertos_inscricoes as unknown as { lista: string[] };
     smuggled.lista.push("INS-FORJADA");
     (source as { records: unknown }).records = [];
     observations.length = 0;
