@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/http/server.ts",
+    "demo": "tsx src/demo/main.ts",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
