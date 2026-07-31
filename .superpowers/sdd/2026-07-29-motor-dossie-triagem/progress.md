@@ -157,3 +157,53 @@ evidence of format, not of field. Recorded in ADR 022; the first real client
 file is the test that is missing.
 
 Next: Task 8 — PGFN Dados Abertos, one source working end to end.
+
+---
+
+Task 8: IN PROGRESS — Dados Abertos landed (commits `992112b..fdabc13`). Suite:
+186 tests, 0 failures, 0 skipped. Lint, typecheck and contract generation exit
+0, no regenerated artifact drift.
+
+Done in Task 8:
+
+- `packages/domain/src/identity/mask.ts`. Verifies a published mask against a
+  CPF the caller already holds; exports nothing that takes a mask alone, and a
+  test asserts the export surface so the next function added has to justify
+  itself. Positions 4-9 are derived in memory for the comparison and never
+  persisted. Shared with Task 5.
+- `packages/adapters/src/pgfn/manifest.ts`. The four states stay apart: an
+  unread system is `NAO_CONSULTADO`, a failed part is `ERRO_NA_FONTE` even
+  though its slice is nominally covered, and only complete coverage of every
+  required system and UF may answer `NAO_ENCONTRADO` (ADR 014). A record that
+  was read stays `ENCONTRADO` whatever the rest of the coverage did.
+- `packages/adapters/src/pgfn/open-data.ts`. Latin-1/UTF-8 detection, `;`,
+  decimal comma into integer cents, `TIPO_SITUACAO_INSCRICAO` and
+  `SITUACAO_INSCRICAO` kept as two fields, blank lines skipped, a lost column
+  failing loudly as `LAYOUT_PGFN_INVALIDO`, and an unreadable amount named in
+  `rejected` rather than dropped.
+- `packages/adapters/src/pgfn/open-data-worker.ts`. Mask compatibility is the
+  only gate on persistence, so a non-client record never leaves the loop.
+  Observations are raw facts with no link confidence, carrying the query scope
+  and the publication reference as `coletado_em`.
+- `fixtures/pgfn/open-data/` plus `scripts/make-pgfn-fixtures.mjs`, preserving
+  the 4-9 mask, a homonym sharing the name but not the mask, a candidate
+  sharing the mask but not the name, blank lines mid-part, Latin-1, decimal
+  commas.
+
+Mutation evidence: removing the non-client mask gate fails 5 tests; letting
+partial coverage answer `NAO_ENCONTRADO` fails 5.
+
+Missing in Task 8: `list-importer.ts` for the manual PGFN list
+(`PGFN_LISTA_DEVEDORES_MANUAL`), with preamble/filter provenance per block, a
+block without provenance marked or refused, and `Valor Total` kept
+semantically distinct from `Valor da Dívida Selecionada` with no silent
+fallback between them (ADR 014, ADR 015 — no scraping under any circumstance).
+The manual list is also what conditions `pgfn_regularidade_indiciada_por_delta`
+in Task 7.
+
+Task 8: column names for Dados Abertos follow the published layout and are
+**not** contract-verified; `docs/fontes.md` already records the source as "não
+verificado". Nothing in the code invents a response shape — an unexpected
+layout fails loudly instead of yielding empty fields.
+
+Next: finish Task 8 with the manual list importer, then Task 5.
