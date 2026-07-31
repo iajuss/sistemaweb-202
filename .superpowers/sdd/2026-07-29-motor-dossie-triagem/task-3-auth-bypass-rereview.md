@@ -1,5 +1,12 @@
 # Task 3 — Scoped independent re-review of the authentication critical bypasses
 
+> **Status update (2026-07-30).** C-1, C-2 and C-3 below were corrected in
+> `000a626` and `9249fb2`. A second independent re-review of `3990207..000a626`
+> confirmed C-1 and C-3 closed and found C-2 only half closed; `9249fb2` closed
+> the remaining half. See the closure record at the end of this file. The
+> Important and Minor findings (I-2 to I-5 and the Minor list) remain open and
+> await triage.
+
 **Date:** 2026-07-30
 **Range reviewed:** `e77a5d3..a7a9d2d`
 **Reviewer:** independent subagent (did not implement the code under review)
@@ -224,3 +231,94 @@ exist in production code; `vi.stubEnv` appears only in test files.
   sequence `["SET_LOCAL:tenant-a", "ROLE_CHECK", "FIND_AUTHORIZED"]`.
 - CPF hygiene is clean across the range: no CPF in any new error, log or
   exception; `$queryRawUnsafe` is parameterized on `tenantId` only.
+
+---
+
+# Closure record — corrections `000a626` and `9249fb2`
+
+## Second independent re-review, range `3990207..000a626`
+
+A second reviewer (which did not write the correction) re-ran the original PoCs
+and attempted new ones.
+
+**C-1 — CLOSED.** Eight structural attacks executed under `NODE_ENV=production`,
+all failing closed with the named error: detached prototype method,
+`Object.create(prototype)`, `Reflect.apply` with a forged `this`, subclass
+calling `super`, `Object.setPrototypeOf`, `Symbol.hasInstance` override forcing
+`instanceof` to true, `Reflect.construct` with an alternate `new.target`, and a
+provider legitimately built in development then reused after the environment
+flipped to production. The reviewer established that the `WeakSet` — not
+`instanceof` — is the load-bearing control: forcing `instanceof` to true still
+fails, and deleting the `instanceof` clause changes no behaviour. ADR 021's
+production prohibition now has per-call code enforcement, since outside
+development no `VerifiedPrincipal` can be issued at all and every repository
+entry point therefore fails closed at `assertVerifiedPrincipal`.
+
+**C-3 — CLOSED.** Verified across the full matrix of database return shapes:
+`null`, `undefined`, matching tenant, differing tenant, `tenantId: undefined`,
+`tenantId: null`, case variation, whitespace variation, and a boxed `String`.
+Only the exact match is returned. `save` still routes through the wrapper, and
+no other read or write path on either repository file lacks the comparison.
+
+**C-2 — was only half closed.** The authority token defeated every forgery
+attempt (plain object, frozen object, `Reflect.construct`, subclass `super`,
+`valueOf` coercion) and is not recoverable from an instance. But the guard was
+constructor-only, and the constructor is optional:
+
+```js
+const rogue = Object.create(PrismaAuthorizedObservationRepository.prototype);
+rogue.database = fakeDatabase;
+rogue.writer   = new TransactionalTenantScopedRepository(fakeDb);
+await rogue.find(principal, operation, "observation-a");
+```
+
+```text
+PoC-1 calls: ["findAuthorized(victim-tenant,victim-wallet,observation-a) -- NO set_config, NO role check"]
+PoC-2 calls: ["RAW_SAVE:OTHER-TENANT -- no guard at all"]
+```
+
+Factory-built instances were additionally unfrozen, with `database` and `writer`
+writable and hijackable after construction. This repeated, in the same commit,
+the very pattern its own C-1 comment documents as insufficient.
+
+**Mutation results on `000a626`.** M1 (delete all three `assertDevelopmentIssuer`
+calls) killed two tests; M2 (delete the WeakSet membership check) killed one;
+M4 (delete the construction authority throw) killed one; M5 (revert `find` to
+`return record`) killed one. **M3 — delete the per-call
+`assertDevelopmentEnvironment()` — survived the entire suite**, leaving a guard
+introduced by that commit without executable enforcement, contrary to ADR 019.
+
+## Correction `9249fb2`
+
+- `factoryIssuedRepositories` WeakSet, populated by the constructor and checked
+  per call at the top of `save` and `find`, plus `Object.freeze(this)` so a
+  legitimately built instance cannot have `database`/`writer` swapped.
+  RED evidence observed before implementing:
+  `promise resolved "{ id: 'observation-a', …(7) }" instead of rejecting` on the
+  read path and `promise resolved "undefined" instead of rejecting` on the write
+  path.
+- Added the missing test for the per-call environment re-check. Re-running
+  mutation M3 with that test present now fails exactly one test —
+  `stops issuing principals when the environment leaves development after
+  construction` → `expected [Function] to throw an error` — and the guard was
+  restored immediately afterwards.
+- Recorded in source that `instanceof` is type narrowing rather than a security
+  control (reviewer finding N-3).
+
+## Verification after both corrections
+
+| Command | Result |
+| --- | --- |
+| `pnpm test` | 87 tests, 0 failures, 0 skipped (domain 30, adapters 44, contracts 9, application 4) |
+| `pnpm lint` | exit 0 |
+| `pnpm typecheck` | exit 0 |
+| `pnpm generate:contracts` | exit 0, no drift |
+| PostgreSQL/RLS integration | ran against the real container, not mocked |
+
+## Outstanding
+
+`9249fb2` has not itself been independently re-reviewed. It applies the pattern
+the second review validated for C-1 and carries RED, GREEN and mutation
+evidence, but a third scoped review remains the open verification step before
+Task 3 closes. Findings I-2 to I-5 and the Minor list are unchanged and await
+triage.
