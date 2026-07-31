@@ -94,8 +94,25 @@ function assertWriteScope(
   return context;
 }
 
+/**
+ * A debtor-scoped record needs the wallet-containment check that the generic
+ * readers below do not perform. Answering with one is the cross-wallet leak,
+ * so it fails loudly rather than returning data it cannot authorize.
+ */
+function assertNotDebtorScoped(record: TenantRecord): void {
+  if ("debtorId" in record) {
+    throw new Error("WALLET_SCOPE_REQUIRED_FOR_DEBTOR_RECORD");
+  }
+}
+
 export class InMemoryTenantScopedRepository<T extends TenantRecord> {
-  private readonly records = new Map<string, T>();
+  // `#` field, not `private`: the latter is erased at runtime and leaves the
+  // whole record map reachable on the object handed to callers.
+  readonly #records = new Map<string, T>();
+
+  public constructor() {
+    Object.freeze(this);
+  }
 
   public async save(
     principal: VerifiedPrincipal,
@@ -103,7 +120,7 @@ export class InMemoryTenantScopedRepository<T extends TenantRecord> {
     value: T,
   ): Promise<void> {
     assertWriteScope(principal, operation, value);
-    this.records.set(value.id, value);
+    this.#records.set(value.id, value);
   }
 
   public async find(
@@ -112,15 +129,23 @@ export class InMemoryTenantScopedRepository<T extends TenantRecord> {
     id: string,
   ): Promise<T | null> {
     const context = assertReadOperation(principal, operation);
-    const record = this.records.get(id);
-    return record?.tenantId === context.tenantId ? record : null;
+    const record = this.#records.get(id);
+    if (record?.tenantId !== context.tenantId) {
+      return null;
+    }
+    assertNotDebtorScoped(record);
+    return record;
   }
 }
+Object.freeze(InMemoryTenantScopedRepository.prototype);
 
 export class TransactionalTenantScopedRepository<T extends TenantRecord> {
-  public constructor(
-    private readonly database: TenantTransactionDatabase<T>,
-  ) {}
+  readonly #database: TenantTransactionDatabase<T>;
+
+  public constructor(database: TenantTransactionDatabase<T>) {
+    this.#database = database;
+    Object.freeze(this);
+  }
 
   public async save(
     principal: VerifiedPrincipal,
@@ -128,7 +153,7 @@ export class TransactionalTenantScopedRepository<T extends TenantRecord> {
     value: T,
   ): Promise<void> {
     const context = assertWriteScope(principal, operation, value);
-    await this.database.transaction(async (transaction) => {
+    await this.#database.transaction(async (transaction) => {
       await transaction.setLocalTenant(context.tenantId);
       await transaction.assertApplicationRole();
       await transaction.save(value);
@@ -141,14 +166,19 @@ export class TransactionalTenantScopedRepository<T extends TenantRecord> {
     id: string,
   ): Promise<T | null> {
     const context = assertReadOperation(principal, operation);
-    return this.database.transaction(async (transaction) => {
+    return this.#database.transaction(async (transaction) => {
       await transaction.setLocalTenant(context.tenantId);
       await transaction.assertApplicationRole();
       const record = await transaction.find(id);
-      return record?.tenantId === context.tenantId ? record : null;
+      if (record?.tenantId !== context.tenantId) {
+        return null;
+      }
+      assertNotDebtorScoped(record);
+      return record;
     });
   }
 }
+Object.freeze(TransactionalTenantScopedRepository.prototype);
 
 /**
  * Observations are tenant+debtor facts. Wallet topology is checked at the
@@ -157,15 +187,23 @@ export class TransactionalTenantScopedRepository<T extends TenantRecord> {
 export class InMemoryAuthorizedObservationRepository<
   T extends DebtorScopedTenantRecord,
 > {
-  private readonly records = new Map<string, T>();
+  readonly #records = new Map<string, T>();
+  readonly #walletContainsDebtor: (
+    tenantId: string,
+    walletId: string,
+    debtorId: string,
+  ) => boolean;
 
   public constructor(
-    private readonly walletContainsDebtor: (
+    walletContainsDebtor: (
       tenantId: string,
       walletId: string,
       debtorId: string,
     ) => boolean,
-  ) {}
+  ) {
+    this.#walletContainsDebtor = walletContainsDebtor;
+    Object.freeze(this);
+  }
 
   public async save(
     principal: VerifiedPrincipal,
@@ -173,7 +211,7 @@ export class InMemoryAuthorizedObservationRepository<
     value: T,
   ): Promise<void> {
     assertWriteScope(principal, operation, value);
-    this.records.set(value.id, value);
+    this.#records.set(value.id, value);
   }
 
   public async find(
@@ -182,11 +220,11 @@ export class InMemoryAuthorizedObservationRepository<
     id: string,
   ): Promise<T | null> {
     const context = assertReadOperation(principal, operation);
-    const record = this.records.get(id);
+    const record = this.#records.get(id);
     if (
       !record ||
       record.tenantId !== context.tenantId ||
-      !this.walletContainsDebtor(
+      !this.#walletContainsDebtor(
         context.tenantId,
         operation.walletId,
         record.debtorId,
@@ -197,3 +235,4 @@ export class InMemoryAuthorizedObservationRepository<
     return record;
   }
 }
+Object.freeze(InMemoryAuthorizedObservationRepository.prototype);

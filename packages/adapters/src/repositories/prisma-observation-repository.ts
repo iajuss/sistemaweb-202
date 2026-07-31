@@ -178,22 +178,29 @@ function assertFactoryIssuedRepository(candidate: unknown): void {
 }
 
 export class PrismaAuthorizedObservationRepository {
-  private readonly writer: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
+  /**
+   * ECMAScript `#` fields, not TypeScript `private`. `private` is erased at
+   * runtime and leaves own properties on the object the factory hands out:
+   * `writer` reaches a `find` that checks the tenant but no wallet, and
+   * `database` reaches a `findAuthorized` whose tenant is a plain argument.
+   * `#` fields are also immune to a prototype accessor shadowing the write.
+   */
+  readonly #database: PrismaObservationDatabase;
+  readonly #writer: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
 
   /**
    * Only the factory holds the authority object, so an exported class value
    * cannot be turned into a repository over a caller-supplied database.
    */
-  public constructor(
-    authority: object,
-    private readonly database: PrismaObservationDatabase,
-  ) {
+  public constructor(authority: object, database: PrismaObservationDatabase) {
     if (authority !== repositoryConstructionAuthority) {
       throw new Error("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
     }
-    this.writer = new TransactionalTenantScopedRepository(database);
-    // Freezing stops a caller from swapping `database`/`writer` on a
-    // legitimately built instance after the fact.
+    this.#database = database;
+    this.#writer = new TransactionalTenantScopedRepository(database);
+    // Stops a caller from shadowing `find`/`save` with an own property on an
+    // instance already handed to another consumer. The internals above are
+    // out of reach regardless, so this is not what protects them.
     Object.freeze(this);
     factoryIssuedRepositories.add(this);
   }
@@ -204,7 +211,7 @@ export class PrismaAuthorizedObservationRepository {
     value: ObservationPersistenceRecord,
   ): Promise<void> {
     assertFactoryIssuedRepository(this);
-    await this.writer.save(principal, operation, value);
+    await this.#writer.save(principal, operation, value);
   }
 
   public async find(
@@ -214,7 +221,7 @@ export class PrismaAuthorizedObservationRepository {
   ): Promise<ObservationPersistenceRecord | null> {
     assertFactoryIssuedRepository(this);
     const context = assertReadOperation(principal, operation);
-    const record = await this.database.findAuthorized(
+    const record = await this.#database.findAuthorized(
       context.tenantId,
       operation.walletId,
       id,
@@ -225,20 +232,29 @@ export class PrismaAuthorizedObservationRepository {
   }
 }
 
+// A writable prototype lets an attacker install an accessor for a field name
+// and capture the constructor's assignment. `#` fields close that, and freezing
+// the prototype also stops `find`/`save` from being replaced wholesale.
+Object.freeze(PrismaAuthorizedObservationRepository.prototype);
+
 export interface PrismaObservationRepositoryBundle {
   readonly observations: PrismaAuthorizedObservationRepository;
   disconnect(): Promise<void>;
 }
 
+/**
+ * Takes no arguments on purpose. A caller-supplied datasource walks around the
+ * construction authority entirely: the returned repository is factory-issued
+ * and fully functional, but points at a database the caller chose, where no
+ * tenant policy applies. The connection string comes from configuration.
+ */
 export function createPrismaObservationRepository(
-  databaseUrl?: string,
+  ...overrides: readonly never[]
 ): PrismaObservationRepositoryBundle {
-  if (databaseUrl !== undefined && typeof databaseUrl !== "string") {
+  if (overrides.length > 0) {
     throw new Error("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
   }
-  const client = new PrismaClient(
-    databaseUrl ? { datasources: { db: { url: databaseUrl } } } : undefined,
-  );
+  const client = new PrismaClient();
   const database = new PrismaObservationDatabase(client);
   return {
     observations: new PrismaAuthorizedObservationRepository(

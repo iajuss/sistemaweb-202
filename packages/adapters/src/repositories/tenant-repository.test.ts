@@ -141,6 +141,42 @@ class RlsDatabaseFixture
   }
 }
 
+/**
+ * Architectural invariant for every repository class in this layer. TypeScript
+ * `private` is erased at runtime: it left `database`, `writer` and `records` as
+ * own properties on the objects handed to callers, and reaching one of those
+ * skips every principal, operation and wallet check the class performs. A new
+ * repository class inherits this test by being added to the list.
+ */
+describe.each([
+  [
+    "InMemoryTenantScopedRepository",
+    () => new InMemoryTenantScopedRepository<ObservationFixture>(),
+  ],
+  [
+    "InMemoryAuthorizedObservationRepository",
+    () =>
+      new InMemoryAuthorizedObservationRepository<
+        ObservationFixture & { readonly debtorId: string }
+      >(() => true),
+  ],
+  [
+    "TransactionalTenantScopedRepository",
+    () =>
+      new TransactionalTenantScopedRepository<ObservationFixture>(
+        new RlsDatabaseFixture(),
+      ),
+  ],
+])("%s architectural invariants", (_name, build) => {
+  it("keeps every internal out of reach as an own property", () => {
+    expect(Object.keys(build() as object)).toEqual([]);
+  });
+
+  it("freezes its prototype so a data method cannot be replaced", () => {
+    expect(Object.isFrozen(Object.getPrototypeOf(build()))).toBe(true);
+  });
+});
+
 describe("tenant-scoped repository", () => {
   it("returns one tenant-debtor observation fact to two authorized wallets", async () => {
     const repository = new InMemoryAuthorizedObservationRepository<{
@@ -294,6 +330,35 @@ describe("tenant-scoped repository", () => {
     await expect(
       repository.find(tenantAReader.principal, tenantAReader.operation, observation.id),
     ).resolves.toEqual(observation);
+  });
+
+  it("refuses to return a debtor-scoped record through the wallet-blind reader", async () => {
+    // The generic transactional reader checks the tenant but no wallet. A
+    // debtor-scoped record reaching it is the cross-wallet leak, so it must
+    // fail loudly instead of answering with data it cannot authorize.
+    const debtorScoped = {
+      id: "observation-a",
+      tenantId: "tenant-a",
+      debtorId: "debtor-a",
+      source: "PGFN_DADOS_ABERTOS" as const,
+    };
+    const database: TenantTransactionDatabase<typeof debtorScoped> = {
+      transaction: async (operation) =>
+        operation({
+          assertApplicationRole: async () => {},
+          setLocalTenant: async () => {},
+          save: async () => {},
+          find: async () => debtorScoped,
+        }),
+    };
+    const repository = new TransactionalTenantScopedRepository(database);
+    const reader = await authorizedOperation({
+      tenantId: "tenant-a", walletId: "wallet-a", kind: "AGENT", action: "READ_DOSSIER",
+    });
+
+    await expect(
+      repository.find(reader.principal, reader.operation, "observation-a"),
+    ).rejects.toThrow("WALLET_SCOPE_REQUIRED_FOR_DEBTOR_RECORD");
   });
 
   it("rejects a READ_DOSSIER capability used to save", async () => {

@@ -98,7 +98,7 @@ describe("Prisma observation repository", () => {
     expect(() =>
       createPrismaObservationRepository({
         client: {} as PrismaClient,
-      } as unknown as string),
+      } as never),
     ).toThrow("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
   });
 
@@ -147,6 +147,121 @@ describe("Prisma observation repository", () => {
       rogue.save(principal, operation, observationFixture),
     ).rejects.toThrow("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
     expect(persisted).toEqual([]);
+  });
+
+  it("keeps the transactional writer and the database unreachable from the issued repository", async () => {
+    const transaction = {
+      $queryRaw: async () => [{ isSuperuser: false, canBypassRls: false }],
+      $queryRawUnsafe: async () => [],
+      observation: { findFirst: async () => observationFixture },
+    };
+    prismaClientFixture.client = {
+      $transaction: async <Result>(callback: (tx: typeof transaction) => Promise<Result>) =>
+        callback(transaction),
+    } as unknown as PrismaClient;
+    const repository = createPrismaObservationRepository();
+    const surface = repository.observations as unknown as Record<string, unknown>;
+
+    // `private` is erased at runtime. An own property holding the writer lets a
+    // caller reach `TransactionalTenantScopedRepository.find`, which checks the
+    // tenant but no wallet, and the database, whose tenant is a plain argument.
+    expect(Object.keys(repository.observations)).toEqual([]);
+    expect(surface.writer).toBeUndefined();
+    expect(surface.database).toBeUndefined();
+  });
+
+  it("does not read through a database installed on the class prototype", async () => {
+    const attackerDatabase = {
+      findAuthorized: async () => ({
+        ...observationFixture,
+        payload: { leaked: "ATTACKER_DATABASE" },
+      }),
+    };
+    let poisoned = false;
+    try {
+      Object.defineProperty(
+        PrismaAuthorizedObservationRepository.prototype,
+        "database",
+        { configurable: true, get: () => attackerDatabase, set: () => {} },
+      );
+      poisoned = true;
+    } catch {
+      // A frozen prototype refusing the accessor is the guard doing its job.
+    }
+
+    try {
+      const transaction = {
+        $queryRaw: async () => [{ isSuperuser: false, canBypassRls: false }],
+        $queryRawUnsafe: async () => [],
+        observation: { findFirst: async () => observationFixture },
+      };
+      prismaClientFixture.client = {
+        $transaction: async <Result>(callback: (tx: typeof transaction) => Promise<Result>) =>
+          callback(transaction),
+      } as unknown as PrismaClient;
+      const repository = createPrismaObservationRepository();
+      const { principal, operation } = await authorizedOperation({
+        kind: "AGENT",
+        action: "READ_DOSSIER",
+      });
+
+      const record = await repository.observations.find(
+        principal,
+        operation,
+        "observation-a",
+      );
+
+      expect(record?.payload).toEqual({ value: "public-source-fact" });
+    } finally {
+      if (poisoned) {
+        Reflect.deleteProperty(
+          PrismaAuthorizedObservationRepository.prototype,
+          "database",
+        );
+      }
+    }
+  });
+
+  it("rejects a caller-supplied database url at the production repository factory", () => {
+    expect(() =>
+      createPrismaObservationRepository(
+        "postgresql://attacker@evil.example:5432/loot" as never,
+      ),
+    ).toThrow("PRISMA_CLIENT_OVERRIDE_FORBIDDEN");
+  });
+
+  it("refuses to shadow a data method on the issued repository instance", async () => {
+    prismaClientFixture.client = {
+      $transaction: async () => null,
+    } as unknown as PrismaClient;
+    const repository = createPrismaObservationRepository();
+
+    // `defineProperty`, not assignment: a frozen prototype already makes
+    // assignment throw, so only this reaches `Object.freeze(this)`.
+    expect(() =>
+      Object.defineProperty(repository.observations, "find", {
+        configurable: true,
+        value: async () => observationFixture,
+      }),
+    ).toThrow(TypeError);
+  });
+
+  it("refuses to replace a data method on the class prototype", () => {
+    const prototype = PrismaAuthorizedObservationRepository.prototype;
+    const original = Object.getOwnPropertyDescriptor(prototype, "find");
+
+    try {
+      // `#` fields stop a poisoned accessor, but not a wholesale swap of `find`
+      // for a version without the guards — that needs the prototype frozen.
+      expect(() => {
+        (prototype as unknown as Record<string, unknown>).find = async () =>
+          observationFixture;
+      }).toThrow(TypeError);
+    } finally {
+      // If the guard is ever removed the swap succeeds; restoring keeps the
+      // failure to this test instead of corrupting every later one.
+      if (original) Object.defineProperty(prototype, "find", original);
+    }
   });
 
   it("does not return an observation whose tenant differs from the authorized operation", async () => {
