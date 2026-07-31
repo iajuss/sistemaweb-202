@@ -6,6 +6,7 @@ import { Money, normalizeSpreadsheetMoney } from "./money.js";
  */
 export interface RawTitleRow {
   readonly externalId: string;
+  readonly name: string;
   readonly cpf: string;
   readonly amount: string;
   readonly dueDate: string;
@@ -13,6 +14,7 @@ export interface RawTitleRow {
 
 export type QuarantineReason =
   | "ID_EXTERNO_AUSENTE"
+  | "NOME_AUSENTE"
   | "CPF_INVALIDO"
   | "VALOR_INVALIDO"
   | "VENCIMENTO_INVALIDO";
@@ -31,6 +33,8 @@ export interface AcceptedTitleRow {
   readonly status: "ACEITO";
   readonly rowNumber: number;
   readonly externalId: string;
+  /** Identity resolution starts from name + CPF, so the name is not optional. */
+  readonly name: string;
   readonly cpfDigits: string;
   readonly amount: Money;
   readonly dueDate: Date;
@@ -104,6 +108,11 @@ export function validateTitleRow(
     return quarantine(rowNumber, "ID_EXTERNO_AUSENTE");
   }
 
+  const name = raw.name.trim();
+  if (name === "") {
+    return quarantine(rowNumber, "NOME_AUSENTE");
+  }
+
   if (!isValidCpf(raw.cpf)) {
     return quarantine(rowNumber, "CPF_INVALIDO");
   }
@@ -124,6 +133,7 @@ export function validateTitleRow(
     status: "ACEITO",
     rowNumber,
     externalId,
+    name,
     cpfDigits: raw.cpf.replace(/\D/g, ""),
     amount,
     dueDate,

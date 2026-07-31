@@ -4,6 +4,7 @@ import { validateTitleRow, type RawTitleRow } from "./wallet.js";
 
 const validRow: RawTitleRow = {
   externalId: "TIT-001",
+  name: "José da Silva",
   cpf: "529.982.247-25",
   amount: "1.234,56",
   dueDate: "2026-03-10",
@@ -17,6 +18,19 @@ describe("validateTitleRow", () => {
     if (result.status !== "ACEITO") throw new Error("EXPECTED_ACCEPTED_ROW");
     expect(result.amount.toCents()).toBe(123456n);
     expect(result.cpfDigits).toBe("52998224725");
+  });
+
+  it("carries the debtor name, which identity resolution starts from", () => {
+    const result = validateTitleRow(validRow, 2);
+
+    if (result.status !== "ACEITO") throw new Error("EXPECTED_ACCEPTED_ROW");
+    expect(result.name).toBe("José da Silva");
+  });
+
+  it("quarantines a row without a debtor name", () => {
+    const result = validateTitleRow({ ...validRow, name: "   " }, 10);
+
+    expect(result).toMatchObject({ reason: "NOME_AUSENTE" });
   });
 
   it("quarantines a CPF whose check digits do not close", () => {
@@ -68,7 +82,7 @@ describe("validateTitleRow", () => {
 
   it("reports the first failing field only, so one row yields one reason", () => {
     const result = validateTitleRow(
-      { externalId: "", cpf: "nope", amount: "x", dueDate: "x" },
+      { externalId: "", name: "", cpf: "nope", amount: "x", dueDate: "x" },
       9,
     );
 
