@@ -14,6 +14,7 @@ camada de entrega.
 - LGPD, retenção e expurgo: [`docs/lgpd.md`](docs/lgpd.md)
 - O que a v1 não faz: [`docs/limitacoes-v1.md`](docs/limitacoes-v1.md)
 - Casos conferíveis à mão: [`docs/casos-de-teste.md`](docs/casos-de-teste.md)
+- Roteiro de demonstração em 10 minutos: [`docs/demonstracao.md`](docs/demonstracao.md)
 
 ## Pré-requisitos
 
@@ -318,7 +319,7 @@ As suítes são separadas porque exigem coisas diferentes:
 pnpm test:unit
 ```
 
-505 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
+526 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
 nada no ar.
 
 ```bash

@@ -107,6 +107,7 @@ fonte mapeada e não integrada. Não adicione fontes sem me perguntar.
 - `docs/lgpd.md` — base legal por fonte e finalidade, retenção, expurgo
 - `docs/limitacoes-v1.md` — pendências conhecidas e assumidas
 - `docs/casos-de-teste.md` — casos conferíveis à mão e onde cada um mora
+- `docs/demonstracao.md` — roteiro de demonstração de 10 minutos
 - `.agents/plans/` — planos de implementação
 
 ## Comandos
