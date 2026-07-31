@@ -1368,3 +1368,90 @@ verde de propósito — é prova de contenção, não correção.
 zero quando o delta se aplica, porque o elo mais fraco lê a confiança de um
 vínculo recusado como 0, e recusa é resposta, não incerteza. O efeito é local ao
 próprio campo publicado.
+
+---
+
+## Entrega: branch para a `main`, CI, leitura final de documentação e roteiro
+
+### O estado que encontrei
+
+`main` estava em `f9575b8` — só documentação, **zero implementação**. O sistema
+inteiro vivia em `codex/dossie-triagem`, 67 commits à frente. Quem clonasse o
+repositório via um projeto vazio.
+
+### PR
+
+PR [#1](https://github.com/iajuss/sistemaweb-202/pull/1) para a `main`. Já
+existia, aberto e sem descrição, com o título automático "Codex/dossie triagem";
+foi atualizado no lugar em vez de aberto um segundo. **Não foi mergeado**, por
+instrução.
+
+### A CI estava vermelha, e nunca tinha sido verde
+
+Achado ao conferir os checks do PR. O workflow rodava `pnpm test`, que inclui a
+suíte de integração chamando `docker compose exec` contra um PostgreSQL real,
+**sem nunca subir o stack**: toda execução morria em
+`service "postgres" is not running`, e os passos de `lint` e `typecheck`, que
+vinham depois, nunca chegaram a executar. Também faltava `prisma generate`, sem
+o qual o `typecheck` falharia por conta própria (defeito E-2).
+
+Corrigido para a sequência do README, com os comandos do README, mais uma
+checagem de deriva dos contratos gerados. **Verde nas duas execuções**
+(`push` e `pull_request`) do commit `fcd9536`.
+
+Uma CI que verifica outra coisa não verifica nada sobre o documento que uma
+pessoa de fato segue — é a mesma família de defeito da regra de lint sem alvo
+(M-1).
+
+### Leitura final de documentação
+
+`README.md`, `docs/fontes.md`, `docs/lgpd.md`, `docs/limitacoes-v1.md` e
+`docs/decisions/README.md`. Os 34 arquivos markdown do repositório tiveram todos
+os links relativos conferidos por script: nenhum quebrado.
+
+`fontes.md`, `lgpd.md` e `casos-de-teste.md` estavam consistentes. O que estava
+velho:
+
+- **`limitacoes-v1.md` afirmava que nenhum item era exercitável porque não havia
+  superfície HTTP.** Falso desde a Task 11. Reescrito: cada linha declara o
+  motivo que vale hoje. P-1 dizia "não há rota que receba um token" — as rotas
+  leem o cabeçalho `Authorization`, só que apenas o esquema; o que segura é o
+  fecho do ADR 021. I-2 dizia "não há login" — as telas pedem credencial ao
+  navegador, e mesmo assim nenhum ator `HUMAN` é construído fora de teste,
+  porque a raiz de composição devolve sempre o agente. M-3 dizia "não há portas
+  públicas" — há, e o símbolo continua exportado sem que nenhuma o chame.
+- **I-3 fechou.** O gatilho declarado era a primeira rota que montasse os
+  argumentos a partir de dados de requisição; a rota chegou e não virou bypass.
+  Movido para uma seção de fechados, com o teste que fecha.
+- **I-4 reconferido e ainda aberto.** Os seis códigos de guarda aparecem em
+  exatamente um arquivo de produção cada e em **nenhum** arquivo de teste. O
+  gatilho declarado era "a revisão final antes da entrega", que é agora; fica
+  registrado que o item entra na entrega em aberto por escopo, não por falta de
+  conferência.
+- **C-1 criado** para a queda de `confianca_global` a zero, que só existia no
+  ledger.
+- **README** dizia 505 testes unitários; são 526.
+
+### `docs/demonstracao.md`
+
+Roteiro de dez minutos, com a preparação declarada fora do relógio. Quatro
+momentos: o valor retido porque o vínculo foi recusado, os sinais nomeados com
+peso atrás da classificação, os quatro estados de fonte, e o que o sistema
+recusa fazer. **Todo comando e toda saída citada foram rodados contra o sistema
+no ar**, não escritos de memória — inclusive a recusa de consulta por CPF (400
+`REQUISICAO_INVALIDA`) e o filtro de vitest que mostra os três estados por nome.
+
+Os quatro estados não aparecem todos na tela: o seed lê as cinco slices com
+sucesso, então só `ENCONTRADO` e `NAO_ENCONTRADO` saem naturalmente. O roteiro
+diz isso e leva os outros dois ao teste que os prende, em vez de fingir que a
+demonstração os mostra.
+
+Verificado de passagem que a demonstração no ar publica `política: 2026-07-B`.
+
+### Pendências intocadas, por instrução
+
+I-2, M-1, M-3 e P-1. Nenhuma linha de código delas foi mexida; o que mudou foi a
+descrição do motivo, que estava desatualizada.
+
+Próxima ação: **verificar a `main` depois do merge**, a partir de clone novo em
+diretório temporário, seguindo o README à risca.
