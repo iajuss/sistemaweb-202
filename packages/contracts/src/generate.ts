@@ -3,19 +3,16 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
-import { ClassificationSchema } from "./classification-schema.js";
 import { DossierSchema } from "./dossier-schema.js";
+import { buildOpenApiDocument } from "./openapi.js";
 
 const GENERATED_DIRECTORY = resolve(import.meta.dirname, "../generated");
 
 export async function generateContracts(): Promise<void> {
   const dossierSchema = z.toJSONSchema(DossierSchema, { target: "draft-2020-12" });
-  const classificationSchema = z.toJSONSchema(ClassificationSchema, { target: "draft-2020-12" });
-  const openApi = {
-    openapi: "3.1.0",
-    info: { title: "Dossier triage contracts", version: "1.0.0" },
-    components: { schemas: { Dossier: dossierSchema, Classification: classificationSchema } },
-  };
+  // Operations and their request shapes come from the same Zod objects the
+  // runtime validates against; nothing here is written by hand twice.
+  const openApi = buildOpenApiDocument();
 
   await mkdir(GENERATED_DIRECTORY, { recursive: true });
   await Promise.all([

@@ -9,6 +9,8 @@ export { ClassificationSchema } from "./classification-schema.js";
 export type { Classification } from "./classification-schema.js";
 export { toClassificationContract } from "./classification-mapper.js";
 export { PROMPT_VERSION, renderPrompt } from "./prompt.js";
+export { buildOpenApiDocument } from "./openapi.js";
+export type { OpenApiDocument, OpenApiOperation } from "./openapi.js";
 export {
   FORBIDDEN_LOOKUP_KEYS,
   ListPrioritiesRequestSchema,

@@ -836,3 +836,22 @@ comportamento pretendido até o JWT/JWKS entrar — pendência P-1, inalterada.
 Falta ainda na Task 11: **operações no OpenAPI** derivadas do Zod (hoje
 `generate.ts` publica só os schemas de dossiê e classificação) e **views
 redigidas por papel**.
+
+### Task 11 — OpenAPI das operações, derivado do Zod
+
+Suíte: 418 unitários, 0 falhas. `lint`, `typecheck` e `generate:contracts` em
+0. `packages/contracts/src/openapi.ts` descreve as três operações, e **cada
+forma de requisição vem do mesmo objeto Zod que o validador de runtime usa** —
+não existe segunda definição para ficar para trás. `generate.ts` deixou de
+montar o documento à mão e passou a chamar `buildOpenApiDocument`.
+
+Seis testes prendem o documento, e dois deles são invariante e não estilo:
+**nenhum parâmetro de CPF ou documento em lugar nenhum** — um parâmetro de CPF
+documentado é uma forma documentada de perguntar ao sistema sobre alguém que
+ninguém lhe deu — e **nenhum identificador de pessoa em caminho de rota**.
+Também está preso que a estritura do schema sobrevive à projeção: o contrato
+publicado diz `additionalProperties: false`, ou seja, afirma exatamente o que o
+validador de runtime faz.
+
+**Resta na Task 11 apenas as views redigidas por papel.** Todo o resto do
+escopo da fatia está entregue e verificado.
