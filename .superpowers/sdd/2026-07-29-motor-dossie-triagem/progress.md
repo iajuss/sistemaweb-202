@@ -1156,3 +1156,44 @@ pessoa" estava implementado como "o estado da fonte é `NAO_ENCONTRADO`" — e a
 renomeação é rótulo. Nenhuma classificação está armazenada para ser invalidada:
 elas são computadas na leitura. Se você preferir tratar como política nova, é
 uma constante.
+
+### Verificação a partir de volume genuinamente vazio, seguindo o README à risca
+
+`docker compose down -v` executado com autorização explícita sua. `docker volume
+ls` devolveu lista vazia depois, então a partida foi de volume inexistente e não
+de banco reaproveitado — o limite honesto registrado no checkpoint anterior está
+fechado.
+
+Sequência do README, na ordem, com a saída conferida a cada passo:
+
+| Passo | Comando | Resultado |
+|---|---|---|
+| 1 | `pnpm install --frozen-lockfile` | `Already up to date`, como o README prevê |
+| 2 | `pnpm exec prisma generate` | `Generated Prisma Client (v6.19.0)` |
+| 3 | `pnpm compose:up` | `Healthy` para postgres e keycloak, saída 0 |
+| 4 | `pnpm migrate` | `2 migrations found`, **as duas aplicadas** — banco novo |
+| 5 | `pnpm demo` | 3 devedores, 0 em quarentena, API no ar |
+| 6 | lookup | 200, `COBRANCA_PADRAO`, pontuação 0.4 |
+| 7 | prioridades | 200, três itens, `next_cursor: null` |
+| 8 | prompt | 200, markdown, cobertura SUFICIENTE |
+
+Também rodado contra o banco novo: `pnpm test:integration`, 13 testes, 0 falhas.
+Os nomes semeados conferidos direto no PostgreSQL batem com o exemplo do
+README, e confirmam o defeito 1 desta sessão: `DEMO-001` e `DEMO-002` são dois
+títulos de `JOSE DA SILVA`, e dois é menos que o mínimo de três da política.
+
+**Três correções no README, todas achadas testando o documento:**
+
+1. **Os `curl` não rodavam no PowerShell.** Reproduzido: `curl` é apelido de
+   `Invoke-WebRequest` e recusa com "Não é possível associar o parâmetro
+   'Headers'". Cada passo ganhou a versão PowerShell ao lado.
+2. **`curl.exe` resolve os `GET`, mas não o `POST`.** Testado: com aspas simples
+   no corpo, e também com `--%`, o PowerShell reescreve as aspas internas antes
+   de o curl vê-las e a resposta é `{"erro":"CORPO_NAO_E_JSON"}`. Só a forma com
+   escape de crase funciona, e é impossível de colar sem errar — por isso a
+   versão Windows do passo 6 é `Invoke-RestMethod`, verificada respondendo 200.
+3. **O passo 7 dizia que dava para abrir no navegador.** Não dá: sem
+   `Authorization` a resposta é 401, confirmado por requisição sem cabeçalho.
+   O texto agora diz isso e explica que barra de endereço não manda cabeçalho.
+
+Contagem de testes unitários do README atualizada de 445 para 505.

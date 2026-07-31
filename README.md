@@ -114,10 +114,26 @@ terminal.
 > identidade de desenvolvimento que ele usa nunca possa ser apontada para dado
 > real. Produção continua proibida até a validação de JWT/JWKS — pendência P-1.
 
+> **Windows: os comandos `curl` abaixo não rodam no PowerShell.** Lá `curl` é
+> apelido de `Invoke-WebRequest`, que não conhece `-s`, `-X` nem `-H` e recusa o
+> comando com "Não é possível associar o parâmetro 'Headers'". Cada passo traz a
+> versão PowerShell ao lado. Se preferir o curl de verdade, chame `curl.exe`
+> pelo nome completo: nas requisições `GET` os comandos bash valem sem nenhuma
+> mudança. No `POST` do passo 6 **não** valem — o PowerShell reescreve as aspas
+> internas do corpo antes de o curl vê-lo e a resposta vira
+> `{"erro":"CORPO_NAO_E_JSON"}`, inclusive com `--%`. Por isso a versão Windows
+> do passo 6 usa `Invoke-RestMethod`.
+
 ### 6. Endpoint de consulta de dossiê
 
 ```bash
 curl -s -X POST http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/dossies/lookup -H "Authorization: Bearer demo" -H "Content-Type: application/json" -d "{\"id_externo\":\"DEMO-001\"}"
+```
+
+No PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/dossies/lookup -Headers @{ Authorization = "Bearer demo" } -ContentType "application/json" -Body '{"id_externo":"DEMO-001"}' | ConvertTo-Json -Depth 5
 ```
 
 **Resposta correta:** HTTP 200 com um JSON de dois campos, `dossier` e
@@ -151,10 +167,18 @@ o dossiê é um snapshot imutável de um instante, nunca um registro editado.
 
 ### 7. Endpoint de prioridades da carteira
 
-Abra no navegador ou rode:
+**Não abre no navegador.** Toda rota exige o cabeçalho `Authorization`, e uma
+barra de endereço não manda cabeçalho nenhum: o navegador recebe 401
+`NAO_AUTENTICADO`. Use a linha de comando.
 
 ```bash
 curl -s http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/prioridades -H "Authorization: Bearer demo"
+```
+
+No PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/prioridades -Headers @{ Authorization = "Bearer demo" } | ConvertTo-Json -Depth 5
 ```
 
 **Resposta correta:** HTTP 200 com a fila ordenada e um cursor de paginação:
@@ -177,6 +201,12 @@ pontuação e id do dossiê, sem nada sobre pessoa.
 
 ```bash
 curl -s "http://127.0.0.1:3000/api/v1/dossies/dossie-1/prompt?carteira=carteira-demo" -H "Authorization: Bearer demo"
+```
+
+No PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/api/v1/dossies/dossie-1/prompt?carteira=carteira-demo" -Headers @{ Authorization = "Bearer demo" }
 ```
 
 **Resposta correta:** HTTP 200 com `content-type: text/markdown; charset=utf-8`
@@ -220,7 +250,7 @@ As suítes são separadas porque exigem coisas diferentes:
 pnpm test:unit
 ```
 
-445 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
+505 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
 nada no ar.
 
 ```bash
