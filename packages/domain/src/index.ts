@@ -42,6 +42,8 @@ export type {
   TenantContext,
   TenantScopedRepository,
 } from "./authorization.js";
+export { isMaskCompatibleWithCpf, parseCpfMask } from "./identity/mask.js";
+export type { CpfMask } from "./identity/mask.js";
 export { IdentityRefSchema } from "./identity.js";
 export type { IdentityRef } from "./identity.js";
 export { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
