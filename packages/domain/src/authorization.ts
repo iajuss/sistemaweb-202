@@ -4,7 +4,7 @@ import type {
   HumanRole,
   WalletGrant,
 } from "./actor.js";
-import { ActorSchema, assertAuthenticatedActor } from "./actor.js";
+import { ActorSchema } from "./actor.js";
 
 export type { AuthorizationAction, WalletGrant } from "./actor.js";
 
@@ -73,7 +73,6 @@ export function authorize(
 }
 
 export function createTenantContext(actor: Actor): TenantContext {
-  assertAuthenticatedActor(actor);
   const parsedActor = ActorSchema.safeParse(actor);
   if (!parsedActor.success) {
     throw new Error("INVALID_ACTOR");
@@ -84,7 +83,7 @@ export function createTenantContext(actor: Actor): TenantContext {
 
   const context: TenantContext = Object.freeze({
     tenantId: parsedActor.data.tenantId,
-    actor: parsedActor.data,
+    actor,
   });
   runtimeTenantContexts.add(context);
   return context;

@@ -6,6 +6,7 @@ import {
 
 import {
   TransactionalTenantScopedRepository,
+  assertReadOperation,
   type TenantRecord,
   type TenantTransaction,
   type TenantTransactionDatabase,
@@ -80,37 +81,56 @@ class PrismaObservationTransaction
         source: value.source,
         status: value.status as SourceStatus,
         queryParams: toJsonInput(value.queryParams),
-        payload: value.payload
-          ? toJsonInput(value.payload)
-          : Prisma.JsonNull,
+        payload: value.payload ? toJsonInput(value.payload) : Prisma.JsonNull,
         collectedAt: value.collectedAt,
       },
       update: {},
     });
   }
 
-  public async find(
-    id: string,
-  ): Promise<ObservationPersistenceRecord | null> {
-    const record = await this.transaction.observation.findUnique({
-      where: { id },
-    });
-    if (!record) {
-      return null;
-    }
-
-    return {
-      id: record.id,
-      tenantId: record.tenantId,
-      debtorId: record.debtorId,
-      source: record.source,
-      status: record.status,
-      queryParams: fromJsonObject(record.queryParams),
-      payload:
-        record.payload === null ? null : fromJsonObject(record.payload),
-      collectedAt: record.collectedAt,
-    };
+  public async find(id: string): Promise<ObservationPersistenceRecord | null> {
+    const record = await this.transaction.observation.findUnique({ where: { id } });
+    return record ? toObservationPersistenceRecord(record) : null;
   }
+
+  /**
+   * An observation is tenant+debtor data. A wallet authorizes exposure only
+   * when it currently contains the debtor through at least one title.
+   */
+  public async findAuthorized(
+    id: string,
+    walletId: string,
+  ): Promise<ObservationPersistenceRecord | null> {
+    const record = await this.transaction.observation.findFirst({
+      where: {
+        id,
+        debtor: { titles: { some: { walletId } } },
+      },
+    });
+    return record ? toObservationPersistenceRecord(record) : null;
+  }
+}
+
+function toObservationPersistenceRecord(record: {
+  id: string;
+  tenantId: string;
+  debtorId: string;
+  source: string;
+  status: SourceStatus;
+  queryParams: Prisma.JsonValue;
+  payload: Prisma.JsonValue | null;
+  collectedAt: Date;
+}): ObservationPersistenceRecord {
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    debtorId: record.debtorId,
+    source: record.source,
+    status: record.status,
+    queryParams: fromJsonObject(record.queryParams),
+    payload: record.payload === null ? null : fromJsonObject(record.payload),
+    collectedAt: record.collectedAt,
+  };
 }
 
 class PrismaObservationDatabase
@@ -127,10 +147,48 @@ class PrismaObservationDatabase
       operation(new PrismaObservationTransaction(transaction)),
     );
   }
+
+  public async findAuthorized(
+    tenantId: string,
+    walletId: string,
+    id: string,
+  ): Promise<ObservationPersistenceRecord | null> {
+    return this.client.$transaction(async (transaction) => {
+      const observationTransaction = new PrismaObservationTransaction(transaction);
+      await observationTransaction.setLocalTenant(tenantId);
+      await observationTransaction.assertApplicationRole();
+      return observationTransaction.findAuthorized(id, walletId);
+    });
+  }
+}
+
+export class PrismaAuthorizedObservationRepository {
+  private readonly writer: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
+
+  public constructor(private readonly database: PrismaObservationDatabase) {
+    this.writer = new TransactionalTenantScopedRepository(database);
+  }
+
+  public async save(
+    principal: import("../identity-middleware.js").VerifiedPrincipal,
+    operation: import("@panella/application").AuthorizedOperation,
+    value: ObservationPersistenceRecord,
+  ): Promise<void> {
+    await this.writer.save(principal, operation, value);
+  }
+
+  public async find(
+    principal: import("../identity-middleware.js").VerifiedPrincipal,
+    operation: import("@panella/application").AuthorizedOperation,
+    id: string,
+  ): Promise<ObservationPersistenceRecord | null> {
+    const context = assertReadOperation(principal, operation);
+    return this.database.findAuthorized(context.tenantId, operation.walletId, id);
+  }
 }
 
 export interface PrismaObservationRepositoryBundle {
-  readonly observations: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
+  readonly observations: PrismaAuthorizedObservationRepository;
   disconnect(): Promise<void>;
 }
 
@@ -143,11 +201,9 @@ export function createPrismaObservationRepository(
   const client = new PrismaClient(
     databaseUrl ? { datasources: { db: { url: databaseUrl } } } : undefined,
   );
+  const database = new PrismaObservationDatabase(client);
   return {
-    observations:
-      new TransactionalTenantScopedRepository<ObservationPersistenceRecord>(
-        new PrismaObservationDatabase(client),
-      ),
+    observations: new PrismaAuthorizedObservationRepository(database),
     disconnect: () => client.$disconnect(),
   };
 }

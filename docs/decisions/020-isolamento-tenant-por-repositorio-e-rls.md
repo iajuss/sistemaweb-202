@@ -8,11 +8,20 @@ introduz dados pessoais cifrados, portanto um vazamento é falha de segurança.
 
 ## Decisão
 
-Toda leitura e escrita de dados tenant-scoped passa por repositório que recebe
-`TenantContext` derivado do ator autenticado, nunca de input HTTP. O cliente
-Prisma cru fica privado ao módulo de repositórios; uma regra arquitetural/lint
-proíbe seu import fora dessa camada. O ator de sistema também fornece contexto
-de tenant explícito e não tem bypass global.
+Toda leitura e escrita de dados tenant-scoped passa por repositório que exige
+uma `VerifiedPrincipal` runtime e uma capability opaca de carteira + ação;
+`TenantContext` é detalhe interno e nunca porta pública. A capability de
+`RUN_SOURCE` é exclusiva de ingestão SYSTEM e `READ_DOSSIER` não pode gravar.
+O cliente Prisma cru fica privado ao módulo de repositórios; uma regra
+arquitetural/lint proíbe seu import fora dessa camada. O ator de sistema também
+fornece tenant e carteira explícitos, sem bypass global.
+
+`Observation` é um fato imutável de fonte pública pertencente a **tenant +
+devedor**. Ela não tem `walletId`, nem herda uma carteira da ingestão: o mesmo
+fato pode ser reutilizado por qualquer carteira do mesmo tenant que contenha o
+devedor. A leitura de observação cruza a carteira da capability com os títulos
+do devedor antes de devolver o registro. Se o devedor não estiver na carteira
+solicitada, retorna ausência sem expor o fato.
 
 Em PostgreSQL de produção, toda tabela tenant-scoped usa `FORCE ROW LEVEL
 SECURITY` e policy baseada em `current_setting('app.tenant_id', true)`. O
@@ -34,6 +43,9 @@ somente o esqueleto de auditoria.
   por inspeção local.
 - **RLS sem repositório:** protege o banco, mas não valida autorização de
   carteira nem impede contexto ausente antes do acesso.
+- **Gravar `walletId` em `Observation`:** transforma uma topologia de
+  autorização mutável em propriedade do fato, bloqueia o reuso entre carteiras
+  e pode manter um vínculo de acesso que já deixou de existir.
 - **Repositório sem RLS:** reduz superfície, mas uma regressão ou consulta
   administrativa futura ainda pode vazar dados.
 

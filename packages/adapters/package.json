@@ -3,10 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "exports": {
+    "./identity-middleware": "./src/identity-middleware.ts",
+    "./keycloak": "./src/keycloak.ts"
+  },
   "scripts": {
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@panella/application": "workspace:*",
     "@panella/domain": "workspace:*",
     "@prisma/client": "6.19.0",
     "zod": "4.1.12"

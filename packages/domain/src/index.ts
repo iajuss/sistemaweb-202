@@ -1,15 +1,15 @@
 export { Money, SerializedCentsSchema, parseSerializedCents } from "./money.js";
 export {
-  assertAuthenticatedActor,
   ActorKindSchema,
+  ActorIssuanceOriginSchema,
   ActorSchema,
   AuthorizationActionSchema,
   HumanRoleSchema,
-  issueAuthenticatedActor,
   WalletGrantSchema,
 } from "./actor.js";
 export type {
   Actor,
+  ActorIssuanceOrigin,
   ActorKind,
   AuthorizationAction,
   HumanRole,

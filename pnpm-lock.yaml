@@ -39,6 +39,9 @@ importers:
 
   packages/adapters:
     dependencies:
+      '@panella/application':
+        specifier: workspace:*
+        version: link:../application
       '@panella/domain':
         specifier: workspace:*
         version: link:../domain
@@ -51,6 +54,9 @@ importers:
 
   packages/application:
     dependencies:
+      '@panella/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@panella/domain':
         specifier: workspace:*
         version: link:../domain

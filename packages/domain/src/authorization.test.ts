@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { issueAuthenticatedActor, type Actor } from "./actor.js";
+import type { Actor } from "./actor.js";
 import {
   authorize,
   createTenantContext,
@@ -12,6 +12,7 @@ const analyst: Actor = {
   kind: "HUMAN",
   provider: "https://identity.example/realms/acme",
   subject: "analyst-subject",
+  issuanceOrigin: "HUMAN_KEYCLOAK",
   tenantId: "tenant-a",
   roles: ["ANALISTA_DOSSIE"],
   walletGrants: [],
@@ -24,6 +25,7 @@ describe("authorize", () => {
       kind: "AGENT",
       provider: "https://identity.example/realms/acme",
       subject: "service-account-agent-a",
+      issuanceOrigin: "AGENT_MACHINE_CREDENTIAL",
       tenantId: "tenant-a",
       roles: [],
       walletGrants: [
@@ -64,6 +66,7 @@ describe("authorize", () => {
         ...analyst,
         id: "agent-a",
         kind: "AGENT" as const,
+        issuanceOrigin: "AGENT_MACHINE_CREDENTIAL" as const,
         roles: [],
         walletGrants: [
           {
@@ -80,6 +83,7 @@ describe("authorize", () => {
         ...analyst,
         id: "worker-a",
         kind: "SYSTEM" as const,
+        issuanceOrigin: "SYSTEM_WORKER" as const,
         roles: [],
         walletGrants: [
           {
@@ -101,17 +105,15 @@ describe("authorize", () => {
 });
 
 describe("createTenantContext", () => {
-  it("rejects an actor-shaped value that was not issued after authentication", () => {
-    expect(() => createTenantContext(analyst)).toThrow(
-      "AUTHENTICATED_ACTOR_REQUIRED",
-    );
+  it("preserves the mapped actor reference instead of re-parsing a clone", () => {
+    const context = createTenantContext(analyst);
+
+    expect(context.actor).toBe(analyst);
   });
 
   it("rejects an actor without a tenant instead of creating a global context", () => {
     const unscoped = { ...analyst, tenantId: undefined };
 
-    expect(() => createTenantContext(issueAuthenticatedActor(unscoped))).toThrow(
-      "TENANT_CONTEXT_REQUIRED",
-    );
+    expect(() => createTenantContext(unscoped)).toThrow("TENANT_CONTEXT_REQUIRED");
   });
 });

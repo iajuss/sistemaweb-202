@@ -52,7 +52,7 @@ O consumidor final é um **agente de AI**, não um humano lendo tela. O contrato
 - Todo acesso a fonte passa pela interface `SourceAdapter`: entrada e saída normalizadas, timeout, retry, rate limit, registro de latência e falha.
 - Multi-tenancy é lógica e obrigatória em toda fronteira de dados; tema white label pertence ao tenant. Ver [ADR 005](docs/decisions/005-multitenancy-logica-e-white-label.md).
 - Execução local usa Docker Compose; produção usa AWS com KMS/Secrets Manager. Ver [ADR 006](docs/decisions/006-topologia-de-execucao-e-gestao-de-segredos.md).
-- Keycloak autentica humanos e agentes; `provedor + subject` identifica atores e autorização de carteira é do domínio. Ver [ADR 007](docs/decisions/007-keycloak-como-provedor-de-identidade.md) e [ADR 008](docs/decisions/008-identidade-de-agente-e-autorizacao-por-carteira.md).
+- Keycloak é o provedor de identidade planejado; enquanto JWT/JWKS não for verificado, só há provider de desenvolvimento e produção é proibida. `provedor + subject` identifica atores e autorização de carteira é do domínio. Ver [ADR 007](docs/decisions/007-keycloak-como-provedor-de-identidade.md), [ADR 008](docs/decisions/008-identidade-de-agente-e-autorizacao-por-carteira.md) e [ADR 021](docs/decisions/021-identidade-verificada-e-proibicao-de-producao-sem-jwt-jwks.md).
 - Retenção é política por tenant; expurgo preserva auditoria pseudonimizada. Ver [ADR 009](docs/decisions/009-retencao-configuravel-e-expurgo-com-esqueleto-de-auditoria.md).
 - A classificação tem uma estratégia primária determinística. Ver [ADR 010](docs/decisions/010-estrategia-primaria-deterministica.md).
 - QSA/RFB é job mensal seletivo; arquivo bruto é efêmero. Ver [ADR 011](docs/decisions/011-carga-seletiva-mensal-do-qsa-rfb.md).
@@ -63,8 +63,10 @@ O consumidor final é um **agente de AI**, não um humano lendo tela. O contrato
 - Não automatizar/scrapear a Lista PGFN sem contrato verificado. Ver [ADR 015](docs/decisions/015-sem-scraping-da-lista-de-devedores-pgfn.md).
 - V1 é política de triagem por regras, não modelo preditivo. Ver [ADR 016](docs/decisions/016-politica-de-triagem-regras-e-aprendizado-futuro.md).
 - Observação é fato bruto; resolução é reexecutável e workers persistem por tenant. Ver [ADR 017](docs/decisions/017-observacoes-brutas-resolucao-e-isolamento-em-workers.md).
+- Observação pertence a tenant + devedor e nunca tem `walletId`; carteira só autoriza a leitura pelo vínculo atual com o devedor. Ver [ADR 020](docs/decisions/020-isolamento-tenant-por-repositorio-e-rls.md).
 - Snapshots registram resolvedor, supersessão, revisão e chave por titular. Ver [ADR 018](docs/decisions/018-contratos-de-snapshot-revisao-e-expurgo.md).
 - Snapshot embute seus campos; expurgo de observação não o altera e chave destruída lê `ELIMINADO_A_PEDIDO_DO_TITULAR`.
+- JWT/JWKS de Keycloak permanece pendente; produção é proibida até validação fail-closed de issuer, audience, expiração e rotação. Ver [ADR 021](docs/decisions/021-identidade-verificada-e-proibicao-de-producao-sem-jwt-jwks.md).
 
 ## Fontes
 
@@ -154,9 +156,9 @@ pela gramática ancorada do contrato. Ver ADR 019.
 Tipo não é imposição em runtime: toda fronteira de confiança precisa de guarda
 executável e de teste que falhe se ela for removida. Ver ADR 019.
 
-Toda persistência tenant-scoped passa por repositório com `TenantContext`; em
-produção, RLS do Postgres é segunda barreira e nunca há bypass de aplicação.
-Ver ADR 020.
+Toda persistência tenant-scoped exige principal verificada e capability opaca de
+carteira + ação; `TenantContext` cru não atravessa porta pública. Em produção,
+RLS do Postgres é segunda barreira e nunca há bypass de aplicação. Ver ADR 020.
 
 ## Commits
 

@@ -9,9 +9,11 @@ falar OIDC desde o início e não pode implementar autenticação de senha próp
 ## Decisão
 
 Usar Keycloak como provedor OIDC/OAuth 2.0 para a v1, executado no Docker Compose
-local e provisionado separadamente na topologia AWS. A aplicação usa fluxo OIDC
-de autorização para humanos e valida tokens como resource server. Keycloak fica
-atrás de uma porta de autenticação; ele não decide acesso a carteiras.
+local e provisionado separadamente na topologia AWS. O fluxo OIDC para humanos
+e a validação resource-server de tokens ainda são pendências: a verificação
+JWT/JWKS não está implementada neste repositório e produção permanece proibida
+até sua validação fail-closed, conforme ADR 021. Keycloak não decide acesso a
+carteiras.
 
 O modelo de identidade interna usa `provedor` (issuer do OIDC) + `subject` (`sub`)
 como chave estável. E-mail é apenas atributo mutável de perfil, nunca chave

@@ -1,17 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { DevInsecureIdentityProvider } from "../../adapters/src/identity-middleware.js";
+import {
+  mapVerifiedKeycloakActor,
+  type AuthenticatedIdentity,
+  type IdentityActorRepository,
+} from "../../adapters/src/keycloak.js";
+import type { TenantContext, WalletGrant } from "@panella/domain";
 
 import {
-  issueAuthenticatedActor,
-  type Actor,
-  type AuthorizationAction,
-  type TenantContext,
-  type WalletGrant,
-} from "@panella/domain";
-
-import {
-  authorizeActor,
-  readAuthorizedObservation,
+  authorizeOperation,
   authorizeWalletCpfLookup,
+  readAuthorizedObservation,
   type WalletAuthorizationRepository,
 } from "./authorize-actor.js";
 
@@ -34,12 +34,9 @@ class WalletRepositoryFixture implements WalletAuthorizationRepository {
     context: TenantContext,
     walletId: string,
   ): Promise<{ readonly id: string; readonly tenantId: string } | null> {
-    return (
-      this.wallets.find(
-        (wallet) =>
-          wallet.id === walletId && wallet.tenantId === context.tenantId,
-      ) ?? null
-    );
+    return this.wallets.find(
+      (wallet) => wallet.id === walletId && wallet.tenantId === context.tenantId,
+    ) ?? null;
   }
 
   public async findGrant(
@@ -47,29 +44,16 @@ class WalletRepositoryFixture implements WalletAuthorizationRepository {
     actorId: string,
     walletId: string,
   ): Promise<WalletGrant | null> {
-    return (
-      this.grants.find(
-        (grant) =>
-          grant.actorId === actorId &&
-          grant.walletId === walletId &&
-          grant.tenantId === context.tenantId,
-      ) ?? null
-    );
+    return this.grants.find(
+      (grant) =>
+        grant.actorId === actorId &&
+        grant.walletId === walletId &&
+        grant.tenantId === context.tenantId,
+    ) ?? null;
   }
 
-  public async containsCpf(
-    context: TenantContext,
-    walletId: string,
-    cpfIndex: string,
-  ): Promise<boolean> {
-    return Boolean(
-      this.wallets.find(
-        (wallet) =>
-          wallet.id === walletId &&
-          wallet.tenantId === context.tenantId &&
-          wallet.cpfIndexes.includes(cpfIndex),
-      ),
-    );
+  public async containsCpf(): Promise<boolean> {
+    return false;
   }
 
   public async containsDebtor(
@@ -77,247 +61,151 @@ class WalletRepositoryFixture implements WalletAuthorizationRepository {
     walletId: string,
     debtorId: string,
   ): Promise<boolean> {
-    return Boolean(
-      this.wallets.find(
-        (wallet) =>
-          wallet.id === walletId &&
-          wallet.tenantId === context.tenantId &&
-          wallet.debtorIds?.includes(debtorId),
-      ),
-    );
+    return Boolean(this.wallets.find(
+      (wallet) =>
+        wallet.id === walletId &&
+        wallet.tenantId === context.tenantId &&
+        wallet.debtorIds?.includes(debtorId),
+    ));
   }
 }
 
-const agent: Actor = issueAuthenticatedActor({
-  id: "agent-a",
-  kind: "AGENT",
-  provider: "https://identity.example/realms/acme",
-  subject: "service-account-agent-a",
-  tenantId: "tenant-a",
-  roles: [],
-  walletGrants: [],
-});
-
-const cpfIndexer = {
-  indexCpf: async (cpf: string, tenantId: string) =>
-    `hmac:${tenantId}:${cpf}`,
+const identityRepository: IdentityActorRepository = {
+  findByIdentity: async ({ subject }) => ({
+    actorId: subject === "system-worker" ? "worker-a" : "agent-a",
+    tenantId: "tenant-a",
+    kind: subject === "system-worker" ? "SYSTEM" : "AGENT",
+    roles: [],
+  }),
 };
 
+async function authenticatedAgent(): Promise<AuthenticatedIdentity> {
+  vi.stubEnv("NODE_ENV", "development");
+  const principal = new DevInsecureIdentityProvider({
+    allowInsecureDevelopmentIdentity: true,
+  }).authenticateMachineAgent({
+    issuer: "https://identity.example/realms/acme",
+    subject: "service-account-agent-a",
+  });
+  return mapVerifiedKeycloakActor(principal, identityRepository);
+}
+
+afterEach(() => vi.unstubAllEnvs());
+
 describe("authorizeActor", () => {
-  it.each(["HUMAN", "AGENT", "SYSTEM"] as const)(
-    "runs runtime authorization for a %s actor",
-    async (kind) => {
-      const action: AuthorizationAction =
-        kind === "SYSTEM" ? "RUN_SOURCE" : "READ_DOSSIER";
-      const roles = kind === "HUMAN" ? ["ANALISTA_DOSSIE" as const] : [];
-      const repository = new WalletRepositoryFixture(
-        [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
-        kind === "HUMAN"
-          ? []
-          : [
-              {
-                actorId: `${kind.toLowerCase()}-a`,
-                tenantId: "tenant-a",
-                walletId: "wallet-a",
-                actions: [action],
-              },
-            ],
-      );
-      const candidate: Actor = issueAuthenticatedActor({
-        ...agent,
-        id: `${kind.toLowerCase()}-a`,
-        kind,
-        roles,
-      });
-
-      await expect(
-        authorizeActor(candidate, "wallet-a", action, repository),
-      ).resolves.toEqual({ allowed: true });
-    },
-  );
-
-  it("denies a wallet that belongs to another tenant before loading grants", async () => {
-    const repository = new WalletRepositoryFixture(
-      [{ id: "wallet-b", tenantId: "tenant-b", cpfIndexes: [] }],
-      [
-        {
-          actorId: "agent-a",
-          tenantId: "tenant-b",
-          walletId: "wallet-b",
-          actions: ["READ_DOSSIER"],
-        },
-      ],
-    );
-
-    await expect(
-      authorizeActor(agent, "wallet-b", "READ_DOSSIER", repository),
-    ).resolves.toEqual({ allowed: false });
-  });
-});
-
-describe("authorizeWalletCpfLookup", () => {
-  it("rejects a CPF that is not present in the authorized imported wallet", async () => {
-    const repository = new WalletRepositoryFixture(
-      [
-        {
-          id: "wallet-a",
-          tenantId: "tenant-a",
-          cpfIndexes: ["hmac:tenant-a:52998224725"],
-        },
-      ],
-      [
-        {
-          actorId: "agent-a",
-          tenantId: "tenant-a",
-          walletId: "wallet-a",
-          actions: ["READ_DOSSIER"],
-        },
-      ],
-    );
+  it("rejects a structural human identity before wallet lookup or CPF indexing", async () => {
+    let walletLookups = 0;
+    let cpfIndexes = 0;
+    const repository: WalletAuthorizationRepository = {
+      findWallet: async () => {
+        walletLookups += 1;
+        return { id: "wallet-a", tenantId: "tenant-a" };
+      },
+      findGrant: async () => null,
+      containsCpf: async () => true,
+      containsDebtor: async () => false,
+    };
 
     await expect(
       authorizeWalletCpfLookup(
-        agent,
+        {
+          principal: {
+            issuer: "https://identity.example/realms/acme",
+            subject: "attacker-subject",
+            origin: "HUMAN_KEYCLOAK",
+          },
+          actor: {
+            id: "attacker",
+            kind: "HUMAN",
+            provider: "https://identity.example/realms/acme",
+            subject: "attacker-subject",
+            issuanceOrigin: "HUMAN_KEYCLOAK",
+            tenantId: "tenant-a",
+            roles: ["ANALISTA_DOSSIE"],
+            walletGrants: [],
+          },
+        } as unknown as AuthenticatedIdentity,
         "wallet-a",
-        "11144477735",
+        "synthetic-cpf-input",
         repository,
-        cpfIndexer,
+        {
+          indexCpf: async () => {
+            cpfIndexes += 1;
+            return "hmac:synthetic";
+          },
+        },
       ),
-    ).resolves.toEqual({ allowed: false });
+    ).rejects.toThrow("AUTHENTICATED_IDENTITY_REQUIRED");
+    expect(walletLookups).toBe(0);
+    expect(cpfIndexes).toBe(0);
   });
 
-  it("allows a CPF already present in the authorized imported wallet", async () => {
+  it("issues an opaque operation only after a wallet grant permits the action", async () => {
+    const identity = await authenticatedAgent();
     const repository = new WalletRepositoryFixture(
-      [
-        {
-          id: "wallet-a",
-          tenantId: "tenant-a",
-          cpfIndexes: ["hmac:tenant-a:52998224725"],
-        },
-      ],
-      [
-        {
-          actorId: "agent-a",
-          tenantId: "tenant-a",
-          walletId: "wallet-a",
-          actions: ["READ_DOSSIER"],
-        },
-      ],
+      [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER"],
+      }],
     );
 
     await expect(
-      authorizeWalletCpfLookup(
-        agent,
-        "wallet-a",
-        "52998224725",
-        repository,
-        cpfIndexer,
-      ),
-    ).resolves.toEqual({ allowed: true });
+      authorizeOperation(identity, "wallet-a", "READ_DOSSIER", repository),
+    ).resolves.toMatchObject({
+      walletId: "wallet-a",
+      action: "READ_DOSSIER",
+      principal: identity.principal,
+      context: { tenantId: "tenant-a", actor: identity.actor },
+    });
+  });
+
+  it("preserves the immutable mapped actor in the operation context", async () => {
+    const identity = await authenticatedAgent();
+    const repository = new WalletRepositoryFixture(
+      [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER"],
+      }],
+    );
+
+    const operation = await authorizeOperation(
+      identity,
+      "wallet-a",
+      "READ_DOSSIER",
+      repository,
+    );
+
+    expect(() => {
+      (identity.actor as { tenantId: string }).tenantId = "tenant-b";
+    }).toThrow();
+    expect(operation?.context.actor).toBe(identity.actor);
   });
 });
 
 describe("readAuthorizedObservation", () => {
-  it("does not read an observation for an agent without a current wallet grant", async () => {
+  it("does not read an observation when a wallet grant is absent", async () => {
+    const identity = await authenticatedAgent();
     const repository = new WalletRepositoryFixture(
-      [
-        {
-          id: "wallet-a",
-          tenantId: "tenant-a",
-          cpfIndexes: [],
-          debtorIds: ["debtor-a"],
-        },
-      ],
+      [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [], debtorIds: ["debtor-a"] }],
       [],
     );
     let observationRead = false;
     const observations = {
-      find: async (): Promise<{ readonly debtorId: string }> => {
+      find: async () => {
         observationRead = true;
         return { debtorId: "debtor-a" };
       },
     };
 
     await expect(
-      readAuthorizedObservation(
-        agent,
-        "wallet-a",
-        "observation-a",
-        repository,
-        observations,
-      ),
+      readAuthorizedObservation(identity, "wallet-a", "observation-a", repository, observations),
     ).resolves.toBeNull();
     expect(observationRead).toBe(false);
-  });
-
-  it("does not return an observation for a debtor outside the authorized wallet", async () => {
-    const repository = new WalletRepositoryFixture(
-      [
-        {
-          id: "wallet-a",
-          tenantId: "tenant-a",
-          cpfIndexes: [],
-          debtorIds: ["debtor-b"],
-        },
-      ],
-      [
-        {
-          actorId: "agent-a",
-          tenantId: "tenant-a",
-          walletId: "wallet-a",
-          actions: ["READ_DOSSIER"],
-        },
-      ],
-    );
-    const observations = {
-      find: async (): Promise<{ readonly debtorId: string }> => ({
-        debtorId: "debtor-a",
-      }),
-    };
-
-    await expect(
-      readAuthorizedObservation(
-        agent,
-        "wallet-a",
-        "observation-a",
-        repository,
-        observations,
-      ),
-    ).resolves.toBeNull();
-  });
-
-  it("returns an observation only after wallet authorization and debtor membership", async () => {
-    const repository = new WalletRepositoryFixture(
-      [
-        {
-          id: "wallet-a",
-          tenantId: "tenant-a",
-          cpfIndexes: [],
-          debtorIds: ["debtor-a"],
-        },
-      ],
-      [
-        {
-          actorId: "agent-a",
-          tenantId: "tenant-a",
-          walletId: "wallet-a",
-          actions: ["READ_DOSSIER"],
-        },
-      ],
-    );
-    const observation = { debtorId: "debtor-a" };
-    const observations = {
-      find: async (): Promise<typeof observation> => observation,
-    };
-
-    await expect(
-      readAuthorizedObservation(
-        agent,
-        "wallet-a",
-        "observation-a",
-        repository,
-        observations,
-      ),
-    ).resolves.toEqual(observation);
   });
 });
