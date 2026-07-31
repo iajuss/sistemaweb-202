@@ -16,6 +16,21 @@ camada de entrega.
 - Casos conferíveis à mão: [`docs/casos-de-teste.md`](docs/casos-de-teste.md)
 - Roteiro de demonstração em 10 minutos: [`docs/demonstracao.md`](docs/demonstracao.md)
 
+## As duas telas, para quem só quer ver
+
+Com a preparação feita (passos 1 a 5 abaixo) e o `pnpm demo` no ar, é isto:
+
+| Tela | Cole no navegador |
+|---|---|
+| **Prioridades da carteira** | http://127.0.0.1:3000/carteiras/carteira-demo/prioridades |
+| **Dossiê** | http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1 |
+
+O navegador pede usuário e senha: **`demo` / `demo`**. Qualquer par serve —
+nada é conferido, e o passo 9 explica por quê.
+
+As rotas de API (`/api/...`) **não** abrem no navegador: elas exigem o cabeçalho
+`Authorization`, e barra de endereço não manda cabeçalho. Para elas, passos 6 a 8.
+
 ## Pré-requisitos
 
 - **Node.js 22 ou superior**
@@ -94,8 +109,9 @@ PGFN sobre as fixtures commitadas, grava as observações no PostgreSQL, compõe
 dossiê por devedor, classifica cada um e então sobe a API em
 `http://127.0.0.1:3000`.
 
-**Resposta correta:** o console imprime a carteira semeada e a fila de
-prioridades, algo como:
+**Resposta correta:** o console imprime a carteira semeada, a fila de
+prioridades e, no fim, **os endereços de tudo que subiu** — os três endpoints e
+as duas telas. É esta a saída inteira:
 
 ```
 Carteira carteira-demo do tenant tenant-demo
@@ -105,10 +121,27 @@ Prioridades da carteira:
   dossie-1  COBRANCA_PADRAO       pontuação 0.40  DEMO-001  JOSE DA SILVA
   dossie-2  MONITORAMENTO         pontuação 0.25  DEMO-010  JOSE DA SILVA SANTOS
   dossie-3  MONITORAMENTO         pontuação 0.00  DEMO-020  ANA LUCIA FERREIRA
+
+Endpoints:
+  POST http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/dossies/lookup  {"id_externo":"DEMO-001"}
+  GET  http://127.0.0.1:3000/api/v1/carteiras/carteira-demo/prioridades
+  GET  http://127.0.0.1:3000/api/v1/dossies/dossie-1/prompt?carteira=carteira-demo
+
+
+Telas:
+  http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
+  http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1
+
+Toda requisição precisa do cabeçalho: Authorization: Bearer demo
+No navegador, as telas pedem usuário e senha: use demo / demo. Qualquer par serve — nada é conferido, e esta identidade de desenvolvimento não autentica ninguém (ADR 021).
+Ctrl+C encerra.
 ```
 
-O processo fica no ar até `Ctrl+C`. Rode os passos 6 a 9 num segundo terminal,
-ou abra as telas do passo 9 no navegador.
+**Se você só quer ver o sistema, pare aqui e cole no navegador o primeiro
+endereço de "Telas".** Usuário `demo`, senha `demo`. O passo 9 explica as duas
+telas em detalhe; os passos 6 a 8 são a API, e podem esperar.
+
+O processo fica no ar até `Ctrl+C`. Rode os passos 6 a 9 num segundo terminal.
 
 > **Semear e servir moram no mesmo processo de propósito.** O cofre de chaves
 > AEAD é em memória (pendência F-5), então o processo que cifrou um CPF é o

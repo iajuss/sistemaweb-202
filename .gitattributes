@@ -4,3 +4,9 @@
 fixtures/wallet/** -text
 fixtures/pgfn/** -text
 *.xlsx binary
+
+# The generator writes LF and the repository stores LF. Without this, autocrlf
+# checks these out as CRLF on Windows, and `git status` reports them modified
+# the moment they are regenerated — drift that is only line endings, on exactly
+# the two files whose diff is supposed to mean "the contract changed".
+packages/contracts/generated/** text eol=lf
