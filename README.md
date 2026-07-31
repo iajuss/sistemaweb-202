@@ -238,22 +238,47 @@ de pessoa identificada. Sem o cabeçalho `Authorization` a resposta é 401.
 
 ### 9. As duas telas
 
-Abra no navegador:
+Cole no navegador, com o `pnpm demo` do passo 5 no ar:
 
+| Tela | URL |
+|---|---|
+| **Prioridades da carteira** | `http://127.0.0.1:3000/carteiras/carteira-demo/prioridades` |
+| **Dossiê** | `http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1` |
+
+Da fila, clicar num título leva ao dossiê daquele devedor — `dossie-1`,
+`dossie-2` e `dossie-3` são os três que o passo 5 semeou.
+
+#### Credenciais
+
+O navegador abre uma caixa de usuário e senha. Use:
+
+| Campo | Valor |
+|---|---|
+| Usuário | `demo` |
+| Senha | `demo` |
+
+**Qualquer par serve, e isso é o ponto.** Nada é conferido: a demonstração
+emite identidade de desenvolvimento e não autentica ninguém. Só o *esquema* do
+cabeçalho é lido — `Basic` ou `Bearer` —, exatamente como os passos 6 a 8
+aceitam qualquer `Bearer`. Sem cabeçalho nenhum a resposta é 401. Autenticação
+de verdade espera a validação de JWT/JWKS (ADR 021, pendência P-1), e até lá o
+servidor **não sobe em produção**: fora de `NODE_ENV=development` nenhuma
+principal é emitida.
+
+A tela pede a credencial, e a rota `/api/` do passo 7 não, porque só a resposta
+de página acompanha `WWW-Authenticate: Basic`. É o mesmo cabeçalho
+`Authorization` nos dois casos, e a autorização por carteira é a mesma.
+
+Na linha de comando as mesmas telas saem assim:
+
+```bash
+curl -s -u demo:demo http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
 ```
-http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
-```
 
-O navegador pede usuário e senha — **qualquer valor serve nesta
-demonstração**, que emite identidade de desenvolvimento e não autentica
-ninguém de verdade (ADR 021, pendência P-1). A tela pede a credencial porque a
-resposta 401 manda `WWW-Authenticate: Basic`; é o mesmo cabeçalho
-`Authorization` que a API usa, e a autorização é a mesma dos passos 6 a 8.
+No PowerShell:
 
-Da fila, clique num título para chegar ao dossiê:
-
-```
-http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1
+```powershell
+curl.exe -s -u demo:demo http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
 ```
 
 **Resposta correta:** a fila mostra os três dossiês ordenados por prioridade, e

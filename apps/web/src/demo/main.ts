@@ -126,7 +126,9 @@ async function main(): Promise<void> {
   console.log("");
   console.log("Toda requisição precisa do cabeçalho: Authorization: Bearer demo");
   console.log(
-    "No navegador, as telas pedem usuário e senha — qualquer valor serve nesta demonstração.",
+    "No navegador, as telas pedem usuário e senha: use demo / demo. " +
+      "Qualquer par serve — nada é conferido, e esta identidade de " +
+      "desenvolvimento não autentica ninguém (ADR 021).",
   );
   console.log("Ctrl+C encerra.");
 
