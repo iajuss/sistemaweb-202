@@ -8,7 +8,7 @@
   "scripts": {
     "test": "pnpm -r test",
     "test:unit": "vitest run --exclude \"**/node_modules/**\" --exclude \"**/*.integration.test.ts\"",
-    "test:integration": "vitest run integration.test",
+    "test:integration": "vitest run integration.test --no-file-parallelism",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --project tsconfig.base.json --noEmit",
     "generate:contracts": "pnpm --filter @panella/contracts generate",

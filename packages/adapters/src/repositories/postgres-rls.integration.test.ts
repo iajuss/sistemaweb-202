@@ -187,6 +187,7 @@ describe("production RLS compose contract", () => {
       "Tenant",
       "Title",
       "Wallet",
+      "WalletImport",
     ]);
     for (const table of tables) {
       expect(table.rls).toBe(true);

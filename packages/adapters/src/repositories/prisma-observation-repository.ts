@@ -15,6 +15,8 @@ import {
 export interface ObservationPersistenceRecord extends TenantRecord {
   readonly debtorId: string;
   readonly source: string;
+  /** Which slice of the source the query covered (ADR 014). */
+  readonly sliceId: string;
   readonly status:
     | "ENCONTRADO"
     | "NAO_ENCONTRADO"
@@ -23,6 +25,8 @@ export interface ObservationPersistenceRecord extends TenantRecord {
   readonly queryParams: Readonly<Record<string, unknown>>;
   readonly payload: Readonly<Record<string, unknown>> | null;
   readonly collectedAt: Date;
+  /** Publication reference, where the source has one. */
+  readonly referenceDate: Date | null;
 }
 
 interface ApplicationDatabaseRole {
@@ -79,10 +83,12 @@ class PrismaObservationTransaction
         tenantId: value.tenantId,
         debtorId: value.debtorId,
         source: value.source,
+        sliceId: value.sliceId,
         status: value.status as SourceStatus,
         queryParams: toJsonInput(value.queryParams),
         payload: value.payload ? toJsonInput(value.payload) : Prisma.JsonNull,
         collectedAt: value.collectedAt,
+        referenceDate: value.referenceDate,
       },
       update: {},
     });
@@ -116,20 +122,24 @@ function toObservationPersistenceRecord(record: {
   tenantId: string;
   debtorId: string;
   source: string;
+  sliceId: string;
   status: SourceStatus;
   queryParams: Prisma.JsonValue;
   payload: Prisma.JsonValue | null;
   collectedAt: Date;
+  referenceDate: Date | null;
 }): ObservationPersistenceRecord {
   return {
     id: record.id,
     tenantId: record.tenantId,
     debtorId: record.debtorId,
     source: record.source,
+    sliceId: record.sliceId,
     status: record.status,
     queryParams: fromJsonObject(record.queryParams),
     payload: record.payload === null ? null : fromJsonObject(record.payload),
     collectedAt: record.collectedAt,
+    referenceDate: record.referenceDate,
   };
 }
 

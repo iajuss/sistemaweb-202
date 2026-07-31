@@ -511,3 +511,93 @@ banco ou upcast de schema — que nasce na 6.5. Lá ela precisa ser chamada **e*
 ganhar o teste que falha quando a chamada é removida.
 
 Próximo: Task 6.5 — persistência de carteira e observações em PostgreSQL.
+
+---
+
+## Task 6.5: FECHADA — persistência em PostgreSQL
+
+Suíte: 300 unitários e 10 de integração, 0 falhas, 0 pulados. `lint`,
+`typecheck` e `generate:contracts` saem 0, sem deriva. A integração roda contra
+o container real, não contra mock.
+
+`packages/adapters/src/repositories/prisma-wallet-repository.ts` traz quatro
+classes com a mesma autoridade das existentes — emissão por fábrica conferida
+**a cada chamada**, campos `#`, protótipo congelado, instância congelada — e as
+quatro entraram na lista `describe.each` dos invariantes arquiteturais de
+`tenant-repository.test.ts`, que subiu de 20 para 28 testes.
+
+O que mudou de verdade é **onde a garantia mora**:
+
+- **Idempotência é índice único**, não chave de `Map`. `(tenantId, walletId,
+  externalId)` no banco; um repositório que esquecesse a derivação da chave
+  ainda assim não cria duplicata, e há teste que prova isso com `INSERT` direto.
+- **Isolamento é política RLS** mais a checagem de aplicação. Os dois tenants
+  importam o mesmo arquivo, existem seis títulos, e a leitura devolve três: é
+  filtro, não banco vazio. RLS continua sendo a segunda barreira e nunca a
+  única (ADR 020).
+- **Append-only é privilégio revogado.** `dossie_app` tem `INSERT, SELECT` em
+  `WalletImport` e mais nada; o teste lê `information_schema.table_privileges` e
+  falha se `UPDATE` ou `DELETE` reaparecerem. Uma importação que aconteceu não
+  pode deixar de ter acontecido, nem ser reescrita.
+- **CPF cifrado em repouso com índice HMAC.** A consulta carrega o HMAC; o CPF
+  não chega a parâmetro de statement, log nem mensagem de erro. Teste faz
+  `"Debtor"::text LIKE '%CPF%'` e exige zero.
+- **Observação continua fato tenant + devedor sem `walletId`.** Lida a partir de
+  uma segunda carteira que contém o mesmo devedor, sem recoleta e sem cópia; um
+  teste confere no `information_schema` que a coluna `walletId` não existe.
+
+### Mudanças de schema
+
+`Title.name` (a resolução de identidade parte de nome + CPF), `Observation.sliceId`
+e `Observation.referenceDate` — slice é coluna e não campo de payload porque é
+ela que decide `NAO_CONSULTADO` contra `NAO_ENCONTRADO` —, e a tabela
+`WalletImport`. Migração única, `20260731140000_wallet_persistence_and_import_audit`.
+
+**Reset do banco de desenvolvimento, autorizado explicitamente pelo usuário em
+2026-07-31.** A migração já aplicada estava sem a FK de `tenantId` em
+`WalletImport` e `migrate diff` acusava drift. Corrigida no lugar, volume
+derrubado, reaplicada do zero: banco novo, migrado desde a primeira migração,
+`migrate diff --exit-code` devolve **`No difference detected.`** e sai 0.
+
+### Decisões tomadas inline
+
+1. **A fábrica não aceita datasource.** Só o serviço de cripto entra; a string
+   de conexão vem de configuração. Um datasource passado pelo chamador anda em
+   volta de todo o aparato de autoridade com uma string — os repositórios
+   voltariam emitidos-pela-fábrica e plenamente funcionais, apontando para um
+   banco onde nenhuma política de tenant existe. É a correção C-6 da fatia 3, e
+   o primeiro rascunho do teste desta fatia a violou; corrigi o teste, não o
+   invariante.
+2. **Porta 5433 exposta só em loopback** no Compose. A suíte de integração roda
+   no host e precisa de conexão real; a alternativa era mandar toda asserção por
+   `psql`, o que testaria SQL em vez do repositório que produção vai usar.
+
+### Dois defeitos de teste corrigidos, ambos anteriores ou introduzidos aqui
+
+- **`import-wallet.test.ts` era instável.** Afirmava que a auditoria não contém
+  `"529"` — três dígitos do CPF — varrendo o JSON inteiro, que inclui um UUID
+  aleatório e um SHA-256. O UUID sorteou `529` e o teste quebrou sem defeito
+  nenhum no produto. Agora `importId` e `fileHash` ficam fora da varredura,
+  porque nenhum dos dois pode carregar CPF por construção, e o CPF completo é
+  exigido ausente do payload inteiro.
+- **As duas suítes de integração disputavam o mesmo banco.** A minha dava
+  `TRUNCATE` global enquanto a de RLS semeava as próprias linhas. Agora cada
+  arquivo tem tenants próprios, a limpeza é escopada, e todo id que escrevo é
+  prefixado — chave primária é global enquanto a limpeza é por tenant, e um
+  `obs-1` sem prefixo colide com linha que este arquivo não pode apagar.
+  Verificado passando sequencial **e** em paralelo.
+
+### Pendências
+
+- **`assertDossierFactDiscipline` continua sem chamador.** Nenhum leitor de
+  snapshot nasceu nesta fatia: o dossiê ainda não é persistido, só composto em
+  memória. Passa para a Task 11 junto com o teste de remoção.
+- **O cofre de chaves em memória não sobrevive ao processo.** O `Debtor` fica
+  cifrado no banco, mas a chave AEAD mora em memória (`createInMemoryCpfCrypto`),
+  então um processo novo não decifra o CPF de uma importação anterior. Para
+  produção é o cofre KMS do ADR 006. Registrado como F-5 em `docs/limitacoes-v1.md`.
+- **E-1 reincidiu**, como previsto: `pnpm migrate` depende de
+  `workspace-dependencies`, que reescreveu `packages/*/node_modules` e derrubou
+  17 arquivos de teste. Reparo confirmado e agora documentado com precisão.
+
+Próximo: Task 7 — política de triagem, ordenação e desfechos.

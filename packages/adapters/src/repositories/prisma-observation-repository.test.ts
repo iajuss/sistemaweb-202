@@ -87,10 +87,12 @@ const observationFixture = {
   tenantId: "tenant-a",
   debtorId: "debtor-a",
   source: "PGFN_DADOS_ABERTOS",
+  sliceId: "SIDA|SP",
   status: "ENCONTRADO" as const,
   queryParams: { scope: "fixture" },
   payload: { value: "public-source-fact" },
   collectedAt: new Date("2026-07-30T12:00:00.000Z"),
+  referenceDate: null,
 };
 
 describe("Prisma observation repository", () => {

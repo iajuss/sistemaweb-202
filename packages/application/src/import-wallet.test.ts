@@ -279,7 +279,21 @@ describe("commitWalletImport", () => {
       quarantinedRows: 1,
       quarantineReasons: { CPF_INVALIDO: 1 },
     });
-    expect(JSON.stringify(entries)).not.toContain("529");
+    // The audit is read by humans and may be exported, so no CPF digit may
+    // reach it. `importId` and `fileHash` are excluded from the scan and not
+    // from the rule: one is a random UUID and the other a SHA-256 of the file
+    // bytes, so neither can carry a CPF — but both are hex, and a three-digit
+    // fragment turns up in them by chance often enough to make the assertion
+    // fire on the wrong thing. Every remaining field is developer-chosen,
+    // which is exactly where a leak would land.
+    const scanned = Object.fromEntries(
+      Object.entries(entries[0]).filter(
+        ([field]) => field !== "importId" && field !== "fileHash",
+      ),
+    );
+    expect(JSON.stringify(scanned)).not.toContain("529");
+    expect(JSON.stringify(scanned)).not.toContain("52998224726");
+    expect(JSON.stringify(entries)).not.toContain("52998224726");
   });
 
   it("keeps the amount in integer cents all the way to the store", async () => {

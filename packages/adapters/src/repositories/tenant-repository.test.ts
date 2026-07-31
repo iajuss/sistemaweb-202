@@ -29,6 +29,21 @@ import {
   InMemoryWalletTitleRepository,
 } from "./wallet-store.js";
 import { createInMemoryCpfCrypto } from "../kms.js";
+import { createPrismaWalletStore } from "./prisma-wallet-repository.js";
+
+/**
+ * The Prisma repositories are only constructible through their factory, which
+ * is the point: the authority object is module-private. Building the bundle
+ * opens no connection — Prisma connects on the first query — so these stay in
+ * the unit suite alongside the in-memory classes they have to match.
+ */
+function prismaWalletStore() {
+  vi.stubEnv(
+    "DATABASE_URL",
+    "postgresql://dossie_app:unused@127.0.0.1:5433/dossie_triagem",
+  );
+  return createPrismaWalletStore(createInMemoryCpfCrypto());
+}
 
 interface ObservationFixture extends TenantRecord {
   readonly source: "PGFN_DADOS_ABERTOS";
@@ -179,6 +194,13 @@ describe.each([
     () => new InMemoryDebtorRepository(createInMemoryCpfCrypto()),
   ],
   ["InMemoryImportAuditRepository", () => new InMemoryImportAuditRepository()],
+  ["PrismaWalletTitleRepository", () => prismaWalletStore().titles],
+  ["PrismaDebtorRepository", () => prismaWalletStore().debtors],
+  ["PrismaImportAuditRepository", () => prismaWalletStore().imports],
+  [
+    "PrismaDebtorObservationRepository",
+    () => prismaWalletStore().observations,
+  ],
 ])("%s architectural invariants", (_name, build) => {
   it("keeps every internal out of reach as an own property", () => {
     expect(Object.keys(build() as object)).toEqual([]);

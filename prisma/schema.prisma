@@ -36,6 +36,7 @@ model Tenant {
   actors     ActorIdentity[]
   grants     AgentWalletGrant[]
   observations Observation[]
+  imports    WalletImport[]
 }
 
 model Wallet {
@@ -46,6 +47,7 @@ model Wallet {
   tenant      Tenant   @relation(fields: [tenantId], references: [id])
   titles      Title[]
   grants      AgentWalletGrant[]
+  imports     WalletImport[]
 
   @@unique([tenantId, id])
   @@index([tenantId])
@@ -76,6 +78,9 @@ model Title {
   walletId    String
   debtorId    String
   externalId  String
+  // Identity resolution starts from name + CPF, so the name the client
+  // declared for this title is part of the imported record (Task 4).
+  name        String
   amountCents BigInt
   dueDate     DateTime
   wallet      Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "Title_wallet_fkey")
@@ -123,13 +128,42 @@ model Observation {
   tenantId    String
   debtorId    String
   source      String
+  // The slice the query covered. A column, not a payload field: coverage is
+  // what decides NAO_CONSULTADO against NAO_ENCONTRADO, and it has to be
+  // reachable by index rather than by reading every JSON blob.
+  sliceId     String
   status      SourceStatus
   queryParams Json
   payload     Json?
   collectedAt DateTime
+  // Publication reference, where the source has one. Distinct from
+  // `collectedAt`, which is when this fact was read.
+  referenceDate DateTime?
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
   debtor      Debtor       @relation(fields: [tenantId, debtorId], references: [tenantId, id], map: "Observation_debtor_fkey")
 
   @@unique([tenantId, id])
   @@index([tenantId, debtorId, source])
+  @@index([tenantId, debtorId, source, sliceId])
+}
+
+/**
+ * Import audit. Append-only is enforced in the database, not by convention:
+ * the application role holds no UPDATE or DELETE on this table.
+ */
+model WalletImport {
+  id                String   @id
+  tenantId          String
+  walletId          String
+  actorId           String
+  fileHash          String
+  importedAt        DateTime
+  acceptedRows      Int
+  quarantinedRows   Int
+  quarantineReasons Json
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  wallet            Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "WalletImport_wallet_fkey")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, walletId])
 }
