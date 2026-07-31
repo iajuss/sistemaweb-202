@@ -4,6 +4,8 @@ export {
   normalizeSpreadsheetMoney,
   parseSerializedCents,
 } from "./money.js";
+export { normalizeSourceMoney } from "./source-money.js";
+export type { SourceMoney } from "./source-money.js";
 export {
   isValidCpf,
   quarantineTitleRow,

@@ -160,9 +160,21 @@ Toda persistência tenant-scoped exige principal verificada e capability opaca d
 carteira + ação; `TenantContext` cru não atravessa porta pública. Em produção,
 RLS do Postgres é segunda barreira e nunca há bypass de aplicação. Ver ADR 020.
 
-## Commits
+## Commits e operações destrutivas
 
-Sempre pergunte se pode dar commits das mudanças realizadas.
+Commite ao fim de cada passo estável, sem pedir autorização. Um passo é estável
+quando os testes passam, o lint e o typecheck estão limpos e a mudança se
+sustenta sozinha.
+
+**Pergunte antes de operação destrutiva**, sempre: reescrita de histórico
+(`rebase`, `amend`, `push --force`), reset de banco, exclusão de migração,
+remoção de arquivo rastreado. O risco nunca foi o commit — foi perder trabalho
+sem aviso.
+
+Esta regra substitui a anterior ("sempre pergunte se pode commitar"), que a
+execução real desobedecia sessão após sessão. Invariante que a própria execução
+desobedece é garantia falsa, da mesma classe da regra de lint morta registrada
+em M-1.
 
 ## Protocolo de parada
 

@@ -71,6 +71,7 @@ export default tseslint.config(
   {
     files: [
       "packages/domain/src/money.ts",
+      "packages/domain/src/source-money.ts",
       "packages/adapters/src/money-normalizer.ts",
     ],
     rules: {

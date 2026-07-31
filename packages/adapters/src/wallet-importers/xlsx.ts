@@ -182,7 +182,7 @@ function mapColumns(headerCells: readonly string[]): Record<ColumnKey, number> {
   return positions;
 }
 
-interface SheetRow {
+export interface SheetRow {
   readonly rowNumber: number;
   readonly cells: readonly string[];
 }
@@ -213,12 +213,23 @@ function readSheetRows(
   );
 }
 
-export function parseWalletXlsx(bytes: Uint8Array): ParsedWalletFile {
+/**
+ * The workbook as a grid of text, with no assumption about what any row means.
+ * The wallet import wants a header on the first non-empty row; the PGFN manual
+ * list arrives with a filter preamble above its header. Both read the same
+ * sheet, so the reading stops here and the interpreting happens above.
+ */
+export function readWorkbookGrid(bytes: Uint8Array): readonly SheetRow[] {
   const entries = readZipEntries(bytes);
-  const sharedStrings = readSharedStrings(entries);
-  const dateStyles = readDateStyles(entries);
-  const sheetXml = text(entries.get(resolveSheetPath(entries)));
-  const sheetRows = readSheetRows(sheetXml, sharedStrings, dateStyles);
+  return readSheetRows(
+    text(entries.get(resolveSheetPath(entries))),
+    readSharedStrings(entries),
+    readDateStyles(entries),
+  );
+}
+
+export function parseWalletXlsx(bytes: Uint8Array): ParsedWalletFile {
+  const sheetRows = readWorkbookGrid(bytes);
 
   const headerRow = sheetRows.find((row) =>
     row.cells.some((cell) => cell.trim() !== ""),

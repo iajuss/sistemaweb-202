@@ -78,7 +78,8 @@ export function parseSerializedCents(input: unknown): Money {
   return Money.fromCents(BigInt(serializedCents));
 }
 
-const SPREADSHEET_MONEY_PATTERN = /^(-?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2}))?$/;
+const SPREADSHEET_MONEY_PATTERN =
+  /^(-?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2})(\d*))?$/;
 
 /**
  * Brazilian spreadsheet money (`1.234,56`) to the canonical decimal string
@@ -96,6 +97,15 @@ export function normalizeSpreadsheetMoney(raw: string): string {
     throw new TypeError("SPREADSHEET_MONEY_FORMAT_INVALID");
   }
 
-  const [, sign, whole, fraction = "00"] = parts;
+  const [, sign, whole, fraction = "00", excess = ""] = parts;
+  // ERP exports routinely format four decimal places, and 1234,5600 is exactly
+  // 1234,56 — refusing a wallet over cell formatting would be a bad surprise.
+  // A non-zero digit past the cents is different: dropping it would change the
+  // amount, so the row is refused and quarantined instead of quietly truncated.
+  // This is the real PGFN artefact `29163886,440000001`.
+  if (/[1-9]/.test(excess)) {
+    throw new TypeError("SPREADSHEET_MONEY_PRECISION_EXCEEDS_CENTS");
+  }
+
   return `${sign}${whole.replaceAll(".", "")}.${fraction}`;
 }
