@@ -56,10 +56,30 @@ export interface PgfnListRow {
   readonly selectedAmount: SourceMoney;
 }
 
+/**
+ * Whether this block covers the whole universe of debts, derived from the
+ * preamble the export carried and never assumed.
+ *
+ * A filter that selects **who** was searched leaves the debt universe whole:
+ * the answer is complete for that subject, which is the only completeness the
+ * regularity delta needs. Anything else — a debt nature, a value ceiling, a
+ * label this code has never seen — is a cut, and under a cut "not found" is
+ * not "no debt". Unknown labels narrow, so an export shape nobody has sampled
+ * yet fails closed rather than silently authorising an inference.
+ */
+export interface PgfnListQueryScope {
+  readonly complete: boolean;
+  readonly reason: "INTEGRAL" | "FILTRADO" | "SEM_PROCEDENCIA";
+  /** Filters that cut the universe. Non-empty means `complete` is false. */
+  readonly narrowingFilters: readonly string[];
+  /** Filters naming who was searched. Empty means the query named nobody. */
+  readonly subjectFilters: readonly string[];
+}
+
 export interface PgfnListBlock {
   readonly provenance: PgfnListProvenance | null;
   readonly status: "COM_PROCEDENCIA" | "SEM_PROCEDENCIA";
-  readonly queryScope: { readonly complete: false };
+  readonly queryScope: PgfnListQueryScope;
   readonly rows: readonly PgfnListRow[];
   readonly rejected: readonly {
     readonly rowNumber: number;
@@ -78,6 +98,52 @@ function fold(raw: string): string {
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
+}
+
+/**
+ * Filter labels that select the subject of the query. Allow-list on purpose:
+ * a label absent from it narrows, so the sample of one real export this was
+ * read off cannot be mistaken for knowledge of every export.
+ */
+const SUBJECT_FILTER_LABELS: readonly string[] = [
+  "nome",
+  "cpf",
+  "cnpj",
+  "cpf/cnpj",
+];
+
+function filterLabel(line: string): string {
+  return fold(line.split(":")[0] ?? "");
+}
+
+export function derivePgfnListQueryScope(
+  provenance: PgfnListProvenance | null,
+): PgfnListQueryScope {
+  if (!provenance) {
+    // Filters nobody can name describe a query nobody can reproduce. That is
+    // a gap, and a gap is never integrality.
+    return Object.freeze({
+      complete: false,
+      reason: "SEM_PROCEDENCIA" as const,
+      narrowingFilters: Object.freeze([]),
+      subjectFilters: Object.freeze([]),
+    });
+  }
+
+  const subjectFilters = provenance.filters.filter((line) =>
+    SUBJECT_FILTER_LABELS.includes(filterLabel(line)),
+  );
+  const narrowingFilters = provenance.filters.filter(
+    (line) => !SUBJECT_FILTER_LABELS.includes(filterLabel(line)),
+  );
+
+  return Object.freeze({
+    complete: narrowingFilters.length === 0,
+    reason:
+      narrowingFilters.length === 0 ? ("INTEGRAL" as const) : ("FILTRADO" as const),
+    narrowingFilters: Object.freeze(narrowingFilters),
+    subjectFilters: Object.freeze(subjectFilters),
+  });
 }
 
 function isHeaderRow(row: SheetRow): boolean {
@@ -180,7 +246,7 @@ function sealBlock(
     // A block with no preamble of its own cannot be attributed to the filters
     // above it: those filters did not produce these rows. Marked, not merged.
     status: provenance ? "COM_PROCEDENCIA" : "SEM_PROCEDENCIA",
-    queryScope: { complete: false },
+    queryScope: derivePgfnListQueryScope(provenance),
     rows: accumulator.rows,
     rejected: accumulator.rejected,
   });

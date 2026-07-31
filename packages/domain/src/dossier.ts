@@ -493,6 +493,38 @@ export function factValue(envelope: DossierFieldEnvelope): FieldValue | null {
   return envelope.vinculoConfirmado ? envelope.valor : null;
 }
 
+/** Link states that express doubt about whom the returned records belong to. */
+const DOUBTFUL_LINKS: readonly LinkStatus[] = [
+  "AMBIGUO",
+  "PROVAVEL",
+  "POSSIVEL",
+  "DESCONHECIDO",
+];
+
+/**
+ * Whether this person is established to be **absent** from what the source
+ * published.
+ *
+ * Absence is a conclusion of the resolver, not a state of the source. A source
+ * that returned rows and had every one of them refused (`REJEITADO`), or whose
+ * rows fit no mask of this debtor (`SEM_CANDIDATO`), has established absence
+ * just as firmly as a source that returned nothing at all. Reading the raw
+ * source state instead would call that presence, and a signal keyed on absence
+ * would then fail for exactly the people it was written for.
+ *
+ * The `false` it looks for is only ever produced under conclusive coverage and
+ * a non-abstaining resolver. The doubt list is the independent half: a
+ * snapshot arriving from storage or from an older schema was not vouched for
+ * by composition, and doubt must never read as absence.
+ */
+export function absenceEstablished(envelope: DossierFieldEnvelope): boolean {
+  if (DOUBTFUL_LINKS.includes(envelope.vinculoStatus)) {
+    return false;
+  }
+  const valor = envelope.valor;
+  return valor !== null && valor.tipo === "BOOLEANO" && !valor.booleano;
+}
+
 export interface DossierSupersession {
   readonly predecessorId: string;
   readonly successorId: string;

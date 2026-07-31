@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  absenceEstablished,
   assertDossierFactDiscipline,
   composeDossier,
   factValue,
   recordSupersession,
   supersededBy,
   type ComposeDossierInput,
+  type DossierFieldEnvelope,
   type DossierSnapshot,
 } from "./dossier.js";
 import { resolveIdentity, type IdentityResolution } from "./identity/resolver.js";
@@ -701,5 +703,79 @@ describe("published subjects", () => {
       tipo: "BOOLEANO",
       booleano: false,
     });
+  });
+});
+
+/**
+ * `absenceEstablished` is a read-boundary function: it is handed envelopes
+ * that composition produced *and* envelopes that arrived from storage or from
+ * an older schema, which nothing vouched for. The cases below are hand-built
+ * for that reason — composition cannot produce the forged combinations, and a
+ * guard that only sees well-formed input is a guard no test can fail.
+ */
+describe("absenceEstablished", () => {
+  const envelope = (
+    overrides: Partial<DossierFieldEnvelope>,
+  ): DossierFieldEnvelope => ({
+    campo: "pgfn_lista_presente",
+    fonte: "PGFN_LISTA_DEVEDORES_MANUAL",
+    slices: ["LISTA_MANUAL"],
+    parametrosConsulta: {},
+    status: "ENCONTRADO",
+    valor: { tipo: "BOOLEANO", booleano: false },
+    coletadoEm: "2026-07-27T00:00:00.000Z",
+    dataReferencia: null,
+    vinculoStatus: "REJEITADO",
+    vinculoConfirmado: false,
+    confiancaVinculo: 0,
+    evidenciaVinculo: [],
+    ...overrides,
+  });
+
+  it("calls a refused link absence, even though the source answered ENCONTRADO", () => {
+    // Rows came back and the resolver refused every one of them. The person is
+    // not there; the source state alone would say the opposite.
+    expect(absenceEstablished(envelope({}))).toBe(true);
+  });
+
+  it("calls an empty answer absence", () => {
+    expect(
+      absenceEstablished(
+        envelope({ status: "NAO_ENCONTRADO", vinculoStatus: "NAO_RESOLVIDO" }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["AMBIGUO", "PROVAVEL", "POSSIVEL", "DESCONHECIDO"] as const)(
+    "refuses to read a %s link as absence even when the value says so",
+    (vinculoStatus) => {
+      // Composition never produces this pair; a stored or upcast snapshot can.
+      // Doubt is silence, and silence is not absence.
+      expect(absenceEstablished(envelope({ vinculoStatus }))).toBe(false);
+    },
+  );
+
+  it("is not absence when the person is present", () => {
+    expect(
+      absenceEstablished(
+        envelope({
+          valor: { tipo: "BOOLEANO", booleano: true },
+          vinculoStatus: "CONFIRMADO",
+          vinculoConfirmado: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not absence when nothing was concluded at all", () => {
+    expect(
+      absenceEstablished(
+        envelope({
+          status: "NAO_CONSULTADO",
+          valor: null,
+          vinculoStatus: "NAO_RESOLVIDO",
+        }),
+      ),
+    ).toBe(false);
   });
 });

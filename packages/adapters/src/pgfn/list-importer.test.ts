@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { importPgfnList } from "./list-importer.js";
+import {
+  derivePgfnListQueryScope,
+  importPgfnList,
+} from "./list-importer.js";
 
 const workbook = (): Uint8Array =>
   readFileSync(
@@ -125,5 +128,93 @@ describe("importPgfnList", () => {
     const imported = importPgfnList(workbook());
 
     expect(imported.source).toBe("PGFN_LISTA_DEVEDORES_MANUAL");
+  });
+});
+
+/**
+ * Scope completeness is **derived from the captured preamble**, never assumed
+ * in either direction. Pinning it to `false` made the regularity delta
+ * permanently unreachable; pinning it to `true` would let "not found under a
+ * filter" read as "no debt". The preamble is the evidence, so it decides.
+ *
+ * The rule is an allow-list and it fails closed: a filter that selects **who**
+ * was searched leaves the debt universe whole, and everything else — a debt
+ * nature, a value ceiling, a label nobody has seen before — cuts it.
+ */
+describe("derivePgfnListQueryScope", () => {
+  const provenance = (filters: readonly string[]) => ({
+    title: "Lista de Devedores - PGFN",
+    filters: [...filters],
+    searchedAt: "Data da pesquisa: 27/07/2026 14:53",
+  });
+
+  it("calls an export filtered only by subject complete for that subject", () => {
+    const scope = derivePgfnListQueryScope(provenance(["Nome: Jose Santos"]));
+
+    expect(scope).toMatchObject({
+      complete: true,
+      reason: "INTEGRAL",
+      narrowingFilters: [],
+      subjectFilters: ["Nome: Jose Santos"],
+    });
+  });
+
+  it("calls an export with no filters at all complete", () => {
+    expect(derivePgfnListQueryScope(provenance([]))).toMatchObject({
+      complete: true,
+      reason: "INTEGRAL",
+    });
+  });
+
+  it.each([
+    ["a debt nature", "Natureza da dívida: Multa Eleitoral"],
+    ["a value ceiling", "Faixa de Valor Máximo (R$): R$ 150.000,00"],
+    ["a value floor", "Faixa de Valor Mínimo (R$): R$ 1.000,00"],
+  ])("calls an export filtered by %s incomplete", (_case, filter) => {
+    const scope = derivePgfnListQueryScope(
+      provenance(["Nome: Jose Santos", filter]),
+    );
+
+    expect(scope.complete).toBe(false);
+    expect(scope.reason).toBe("FILTRADO");
+    expect(scope.narrowingFilters).toEqual([filter]);
+  });
+
+  it("treats a filter label nobody has seen as narrowing", () => {
+    // One real export is the whole sample. A label this code does not know is
+    // a cut it cannot rule out, and the safe reading of an unknown cut is that
+    // absence proves nothing.
+    const scope = derivePgfnListQueryScope(
+      provenance(["Situação da inscrição: Em cobrança"]),
+    );
+
+    expect(scope.complete).toBe(false);
+    expect(scope.reason).toBe("FILTRADO");
+  });
+
+  it("refuses to call a block without provenance complete", () => {
+    expect(derivePgfnListQueryScope(null)).toMatchObject({
+      complete: false,
+      reason: "SEM_PROCEDENCIA",
+    });
+  });
+
+  it("derives the real export's scope from its own preamble", () => {
+    const imported = importPgfnList(workbook());
+
+    // The committed workbook carries a debt nature and a value ceiling, so the
+    // answer is still `false` — reached by reading the preamble rather than by
+    // a constant, which is the difference that makes the delta reachable.
+    expect(imported.blocks[0].queryScope).toMatchObject({
+      complete: false,
+      reason: "FILTRADO",
+      subjectFilters: ["Nome: Jose Santos"],
+    });
+    expect(imported.blocks[0].queryScope.narrowingFilters).toEqual([
+      // The non-breaking space the source publishes, kept verbatim: provenance
+      // is evidence and evidence is not tidied.
+      "Faixa de Valor Máximo (R$): R$ 150.000,00",
+      "Natureza da dívida: Multa Eleitoral",
+    ]);
   });
 });

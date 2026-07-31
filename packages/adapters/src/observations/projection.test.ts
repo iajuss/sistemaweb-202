@@ -4,7 +4,10 @@ import { pgfnOpenDataSliceId, type RawObservation } from "@panella/domain";
 
 import { buildPgfnManifest } from "../pgfn/manifest.js";
 import type { PgfnInscription } from "../pgfn/open-data-worker.js";
-import type { PgfnListBlock } from "../pgfn/list-importer.js";
+import {
+  derivePgfnListQueryScope,
+  type PgfnListBlock,
+} from "../pgfn/list-importer.js";
 
 import {
   projectPgfnListObservation,
@@ -312,17 +315,38 @@ describe("projecting PGFN Dados Abertos, one observation per slice", () => {
 });
 
 describe("projecting the manual PGFN list", () => {
+  function blockFor(
+    filters: readonly string[],
+    overrides: Partial<PgfnListBlock> = {},
+  ): PgfnListBlock {
+    const provenance = {
+      title: "Consulta",
+      filters: [...filters],
+      searchedAt: "2026-07-27",
+    };
+    const effective =
+      "provenance" in overrides ? overrides.provenance ?? null : provenance;
+    return block({
+      provenance: effective,
+      ...overrides,
+      // Derived from the same preamble the importer would read, so no fixture
+      // can claim a scope the importer would not have produced.
+      queryScope: derivePgfnListQueryScope(effective),
+    });
+  }
+
   function block(
     overrides: Partial<PgfnListBlock> = {},
   ): PgfnListBlock {
+    const provenance = {
+      title: "Consulta",
+      filters: ["Nome: JOSE", "Natureza da dívida: Multa Eleitoral"],
+      searchedAt: "2026-07-27",
+    };
     return {
-      provenance: {
-        title: "Consulta",
-        filters: ["Nome: JOSE"],
-        searchedAt: "2026-07-27",
-      },
+      provenance,
       status: "COM_PROCEDENCIA",
-      queryScope: { complete: false },
+      queryScope: derivePgfnListQueryScope(provenance),
       rows: [
         {
           rowNumber: 14,
@@ -349,11 +373,13 @@ describe("projecting the manual PGFN list", () => {
   function listObservation(
     blocks: readonly PgfnListBlock[],
     cpf = CPF,
+    name = "JOSE DA SILVA",
   ): RawObservation {
     return projectPgfnListObservation({
       tenantId: TENANT,
       debtorId: DEBTOR,
       cpf,
+      name,
       collectedAt: "2026-07-27T00:00:00.000Z",
       blocks,
     });
@@ -381,19 +407,58 @@ describe("projecting the manual PGFN list", () => {
     expect(observation.status).toBe("NAO_ENCONTRADO");
   });
 
-  it("reports the scope the block declared rather than assuming it", () => {
-    const filtered = listObservation([block()]);
-    const complete = listObservation([
-      // The importer pins `complete: false` today, so an integral export is
-      // not yet representable in the type. Deriving it from the preamble is
-      // the next slice; the projection already reads it rather than assuming.
-      block({
-        queryScope: { complete: true } as unknown as PgfnListBlock["queryScope"],
-      }),
-    ]);
+  /**
+   * Completeness has two halves and the observation needs both. The importer
+   * answers "was the debt universe cut?" from the preamble. The projection
+   * answers "did that query cover *this* person?", because an export that is
+   * integral for someone else says nothing about this debtor's absence.
+   */
+  it("reports a filtered export as filtered", () => {
+    expect(
+      listObservation([blockFor(["Nome: JOSE", "Natureza da dívida: Multa"])])
+        .queryParams.escopoCompleto,
+    ).toBe(false);
+  });
 
-    expect(filtered.queryParams.escopoCompleto).toBe(false);
-    expect(complete.queryParams.escopoCompleto).toBe(true);
+  it("reports an export filtered only by this debtor's name as complete", () => {
+    expect(
+      listObservation([blockFor(["Nome: JOSE SILVA"])]).queryParams
+        .escopoCompleto,
+    ).toBe(true);
+  });
+
+  it("reports an export with no filters at all as complete", () => {
+    // Nobody was named, so the query covered everyone, this debtor included.
+    expect(listObservation([blockFor([])]).queryParams.escopoCompleto).toBe(
+      true,
+    );
+  });
+
+  it("refuses to let an integral export for somebody else cover this debtor", () => {
+    // The trap that would fire the mitigating signal wrongly: the operator
+    // searched a different person under no narrowing filter, so the block is
+    // integral — and it establishes nothing about this debtor's absence.
+    expect(
+      listObservation([blockFor(["Nome: MARIA SOUZA"])]).queryParams
+        .escopoCompleto,
+    ).toBe(false);
+  });
+
+  it("refuses a subject filter it cannot check against this debtor", () => {
+    // A document filter cannot be compared here without putting a CPF where
+    // it does not belong, so the block does not establish coverage.
+    expect(
+      listObservation([blockFor(["CPF/CNPJ: ***982247**"])]).queryParams
+        .escopoCompleto,
+    ).toBe(false);
+  });
+
+  it("never lets a block without provenance declare a scope", () => {
+    expect(
+      listObservation([
+        blockFor([], { provenance: null, status: "SEM_PROCEDENCIA" }),
+      ]).queryParams.escopoCompleto,
+    ).toBe(false);
   });
 
   it("refuses to attribute rows from a block with no provenance", () => {

@@ -4,6 +4,7 @@ import {
   CARTEIRA_SLICE_ID,
   PGFN_LISTA_SLICE_ID,
   isMaskCompatibleWithCpf,
+  nameTokens,
   pgfnOpenDataSliceId,
   type ObservationRecord,
   type PublishedSubject,
@@ -238,8 +239,39 @@ export interface PgfnListProjectionInput {
   readonly debtorId: string;
   /** In memory for the mask comparison only; never written to the fact. */
   readonly cpf: string;
+  /** In memory to check the export's subject filter covers this person. */
+  readonly name: string;
   readonly collectedAt: string;
   readonly blocks: readonly PgfnListBlock[];
+}
+
+/**
+ * Whether a block's query covered this debtor at all.
+ *
+ * The importer decides whether the export cut the universe of debts; that is
+ * only half of what absence needs. An export with no narrowing filter is
+ * integral, but if the operator searched somebody else it says nothing about
+ * this person — and a mitigating signal that fires on somebody else's query is
+ * worse than one that never fires.
+ *
+ * The source matches name tokens with no notion of position, so a query covers
+ * this debtor when every token it searched for is present in the debtor's
+ * name. Naming nobody covers everybody. A subject filter this code cannot
+ * compare — a document, say, which has no business being compared here —
+ * establishes no coverage.
+ */
+function blockCoversDebtor(block: PgfnListBlock, name: string): boolean {
+  const debtorTokens = new Set(nameTokens(name));
+  return block.queryScope.subjectFilters.every((filter) => {
+    const [label, ...rest] = filter.split(":");
+    if (!label.trim().toLowerCase().startsWith("nome")) {
+      return false;
+    }
+    const searched = nameTokens(rest.join(":"));
+    return (
+      searched.length > 0 && searched.every((token) => debtorTokens.has(token))
+    );
+  });
 }
 
 export function projectPgfnListObservation(
@@ -258,9 +290,12 @@ export function projectPgfnListObservation(
     }
 
     filters.push(...block.provenance.filters);
-    // Never assumed: a block is only integral when it says so. One filtered
-    // block is enough to make the whole reading a slice of the universe.
-    scopeComplete = scopeComplete || block.queryScope.complete;
+    // Never assumed, and derived from the block's own preamble. One block that
+    // was integral *and* covered this person is enough for absence to mean
+    // absence: what the other blocks filtered cannot take that answer away.
+    scopeComplete =
+      scopeComplete ||
+      (block.queryScope.complete && blockCoversDebtor(block, input.name));
 
     for (const row of block.rows) {
       // The only gate on persistence. A row that fits nobody in the wallet

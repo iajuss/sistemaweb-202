@@ -89,6 +89,7 @@ export type {
 } from "./observation.js";
 export {
   DOSSIER_SCHEMA_VERSION,
+  absenceEstablished,
   assertDossierFactDiscipline,
   composeDossier,
   factValue,

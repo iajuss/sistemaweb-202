@@ -1048,3 +1048,75 @@ Dois testes de fixação entraram em `authorization.test.ts` — auditoria sem a
 operacional, operador sem `READ_AUDIT` nem `READ_DOSSIER`. Nasceram verdes, de
 propósito: o comportamento já existia e o que faltava era a prova de que
 alargar a tabela derruba alguma coisa.
+
+### Delta de regularidade — integralidade derivada e ausência resolvida
+
+Suíte: **503 unitários** (era 479), 0 falhas. `lint`, `typecheck` e
+`generate:contracts` saem 0, sem deriva.
+
+Três defeitos, e os três deixavam o mesmo sinal mitigador morto.
+
+**1. O delta chaveava no estado bruto da fonte.** `pgfn_lista_presente` sai
+`ENCONTRADO` sempre que qualquer linha volta. Na saída real do sistema ele sai
+`ENCONTRADO` com vínculo `REJEITADO`: vieram registros, o resolvedor olhou um
+por um e recusou todos. **Para o delta isso é ausência**, não presença — e
+chavear no estado transformava ausência em presença justamente para quem o
+sinal existe. `absenceEstablished` no domínio passa a ser a leitura: ausência é
+conclusão do resolvedor, não estado da fonte. `REJEITADO` e `SEM_CANDIDATO`
+estabelecem ausência tão firmemente quanto `NAO_ENCONTRADO`; `AMBIGUO`,
+`PROVAVEL`, `POSSIVEL` e `DESCONHECIDO` são dúvida, e dúvida é silêncio.
+
+O teste do caso foi escrito e visto vermelho antes de qualquer mudança, com a
+fixture ganhando a força de vínculo `REJEITADO` produzida pelo resolvedor real
+sobre a armadilha documentada (`JOSE SILVA` absorvido em `MARIA JOSE ALVES
+PEREIRA SOARES SILVA`, completude 2/6).
+
+A metade "dúvida" de `absenceEstablished` é infalsificável pela composição — ela
+nunca produz valor `false` sob vínculo `PROVAVEL` —, então ganhou testes de
+envelope construído à mão em `dossier.test.ts`. É fronteira de leitura: snapshot
+vindo do banco ou de schema antigo não passou pela composição. Guarda que nenhum
+teste derruba é garantia falsa (defeito I-4).
+
+**2. A política lia uma chave que a produção nunca escrevia.** O gate de escopo
+lia `parametrosConsulta[slice].queryScope.complete`, e
+`projectPgfnListObservation` escrevia `escopoCompleto`. A fixture escrevia
+`queryScope`, então todo teste passava. Com a fixture e a produção discordando,
+o gate estava morto duas vezes e nenhum teste conseguia mostrar. Unificado em
+`escopoCompleto`, que é a chave que os Dados Abertos já usavam.
+
+**3. `queryScope.complete` era constante `false`.** Agora
+`derivePgfnListQueryScope` deriva do preâmbulo capturado. A regra é allow-list e
+falha fechada: filtro que seleciona **quem** foi pesquisado deixa o universo de
+dívidas inteiro; qualquer outro — natureza da dívida, faixa de valor, rótulo que
+este código nunca viu — é recorte. Uma amostra real é o sample inteiro, então
+rótulo desconhecido recorta, e um formato que ninguém amostrou falha fechado em
+vez de autorizar inferência em silêncio.
+
+**Integralidade tem duas metades, e a segunda faltava inteira.** O importador
+responde "o universo de dívidas foi recortado?", lendo o preâmbulo. A projeção
+responde "essa consulta cobriu **esta** pessoa?" — porque um export íntegro para
+outra pessoa não diz nada sobre a ausência deste devedor, e sinal mitigador que
+dispara pela consulta de terceiro é pior que sinal que nunca dispara. A fonte
+casa token sem noção de posição, então a consulta cobre o devedor quando todo
+token pesquisado está no nome dele; não nomear ninguém cobre todo mundo; filtro
+de documento não é comparável aqui e não estabelece cobertura.
+
+**O sinal continua não disparando na demo, e agora por um motivo verdadeiro:** o
+export real commitado carrega faixa de valor máximo e natureza da dívida, logo é
+recorte. O que mudou é que a resposta vem do preâmbulo e não de uma constante —
+um export sem filtros de recorte, para esta pessoa, faz o delta valer.
+
+| Mutação | Testes que falham |
+|---|---|
+| Delta volta a chavear no estado bruto da fonte | 2 |
+| Lista de vínculos duvidosos esvaziada | 4 |
+| Bloco sem procedência declarado íntegro | 1 |
+| Todo filtro tratado como seletor de sujeito | 9 |
+| Checagem de cobertura do sujeito removida | 2 |
+
+**Pendência registrada, não fechada:** `confianca_global` cai a zero quando o
+delta se aplica, porque o sinal declara depender de `pgfn_lista_presente` e a
+confiança do vínculo recusado é 0. Recusa é resposta, não incerteza, então o elo
+mais fraco está sendo lido errado nesse caso. É anterior a esta mudança — vale
+igual para `NAO_ENCONTRADO` — e mexer nisso é mudança de política com bump de
+versão. Fica anotado para decisão sua.

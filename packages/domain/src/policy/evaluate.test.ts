@@ -198,6 +198,57 @@ describe("the PGFN regularity delta", () => {
     expect(result.score).toBeCloseTo(0.45, 10);
   });
 
+  /**
+   * The case the running system produced, and the reason this signal was
+   * silently unreachable for the people who most deserve it.
+   *
+   * In the demo the list comes back `ENCONTRADO` with the link `REJEITADO`:
+   * rows arrived, the resolver looked at every one of them and refused them
+   * all. For the delta that is **absence** — this person is not on the list —
+   * and keying on the raw source state reads it as presence, so the positive
+   * signal fails to fire for exactly the people it exists for.
+   */
+  it("applies when the list returned records and the resolver refused every one", () => {
+    const result = evaluate({
+      ...COM_DELTA,
+      lista: { status: "ENCONTRADO", link: "REJEITADO", escopoCompleto: true },
+    });
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(true);
+    expect(result.score).toBeCloseTo(0.45, 10);
+    expect(result.primary_strategy).toBe("RENEGOCIACAO_COLABORATIVA");
+  });
+
+  it("applies when the list published nobody whose mask fits this person", () => {
+    // Same shape, different reason: rows came back and the mask excluded them
+    // before any name was scored. Absence, again, rather than presence.
+    const result = evaluate({
+      ...COM_DELTA,
+      lista: {
+        status: "ENCONTRADO",
+        link: "SEM_CANDIDATO",
+        escopoCompleto: true,
+      },
+    });
+
+    expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(true);
+  });
+
+  it("does not confuse a refused link with an uncertain one", () => {
+    // `REJEITADO` is an answer; `AMBIGUO` and `PROVAVEL` are doubt. Doubt is
+    // silence, and silence is not evidence of regularity.
+    for (const link of ["AMBIGUO", "PROVAVEL"] as const) {
+      const result = evaluate({
+        ...COM_DELTA,
+        lista: { status: "ENCONTRADO", link, escopoCompleto: true },
+      });
+
+      expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(
+        false,
+      );
+    }
+  });
+
   it("recommends renegotiation and never escalation", () => {
     const withDelta = evaluate(COM_DELTA);
     const withoutDelta = evaluate({
@@ -243,11 +294,12 @@ describe("the PGFN regularity delta", () => {
     expect(applied(result, "pgfn_regularidade_indiciada_por_delta")).toBe(false);
   });
 
-  it("is unreachable from the manual importer as it stands today", () => {
-    // The importer hard-codes `queryScope.complete = false`, because a manual
-    // export is always a cut under operator-chosen filters. The signal is
-    // therefore dead until an operator can declare a full-scope export, and
-    // that is a documented gap rather than a rule quietly relaxed here.
+  it("does not apply when the observation declared no scope at all", () => {
+    // The scope now comes from the export's own preamble rather than from a
+    // constant, so the signal is reachable. What is still refused is silence:
+    // an observation that says nothing about which query produced it cannot
+    // authorise the inference, and absence of a declaration is not a
+    // declaration of integrality.
     const result = evaluate({
       ...COM_DELTA,
       lista: { status: "NAO_ENCONTRADO" },

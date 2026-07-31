@@ -319,6 +319,7 @@ export async function seedDemo(): Promise<DemoRuntime> {
         tenantId: DEMO.tenantId,
         debtorId: candidate.debtorId,
         cpf: candidate.cpf,
+        name: candidate.name,
         collectedAt: DEMO.listCollectedAt,
         blocks: list.blocks,
       }),

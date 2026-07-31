@@ -35,12 +35,16 @@ export const POLICY_PLAN = sourcePlanForUfs(["SP"]);
  *   above 0.75 and below 0.95.
  * - `AMBIGUO`: two records sharing the mask and the name, so the margin
  *   cannot separate them.
+ * - `REJEITADO`: a record sharing the mask whose name the resolver refuses —
+ *   completeness 2/6 fails the gate. This is the state the real demo produces:
+ *   the source returned rows and none of them is this person.
  * - `SEM_CANDIDATO`: the mask fits another CPF.
  */
 export type LinkStrength =
   | "CONFIRMADO"
   | "PROVAVEL"
   | "AMBIGUO"
+  | "REJEITADO"
   | "SEM_CANDIDATO";
 
 const PUBLISHED_BY_STRENGTH: Record<
@@ -52,6 +56,15 @@ const PUBLISHED_BY_STRENGTH: Record<
   AMBIGUO: [
     { id: "subject-1", maskedCpf: MASK, name: "JOSE SILVA" },
     { id: "subject-2", maskedCpf: MASK, name: "JOSE SILVA" },
+  ],
+  REJEITADO: [
+    // The documented trap, verbatim: the source matches tokens with no notion
+    // of position, so a two-token query is absorbed into a six-token name.
+    {
+      id: "subject-7",
+      maskedCpf: MASK,
+      name: "MARIA JOSE ALVES PEREIRA SOARES SILVA",
+    },
   ],
   SEM_CANDIDATO: [
     { id: "subject-9", maskedCpf: OTHER_MASK, name: "JOSE SILVA" },
@@ -179,10 +192,10 @@ export function dossierFrom(spec: DossierSpec): DossierSnapshot {
 
     observations.push({
       ...base("PGFN_LISTA_DEVEDORES_MANUAL", "LISTA_MANUAL", status, {
-        // The manual export is a cut under operator-chosen filters. The
-        // importer hard-codes `complete: false`; a fixture may declare the
-        // full-scope case the ADR requires, and the tests cover both.
-        queryScope: { complete: escopoCompleto === true },
+        // The same key the real projection writes. When the two drifted apart
+        // the policy read a field production never produced, and the scope
+        // gate was dead in a way no fixture could show.
+        escopoCompleto: escopoCompleto === true,
       }),
       subjects,
       records: subjects.map((subject) => ({

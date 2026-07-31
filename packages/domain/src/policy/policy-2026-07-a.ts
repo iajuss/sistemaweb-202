@@ -1,4 +1,9 @@
-import { factValue, type DossierFieldEnvelope, type DossierSnapshot } from "../dossier.js";
+import {
+  absenceEstablished,
+  factValue,
+  type DossierFieldEnvelope,
+  type DossierSnapshot,
+} from "../dossier.js";
 
 import type { PolicyDefinition, SignalDefinition } from "./types.js";
 
@@ -67,18 +72,25 @@ function regularidadeIndiciadaPorDelta(dossier: DossierSnapshot): boolean {
   if (!encontradoConfirmado(dossier, "pgfn_dados_abertos_presente")) {
     return false;
   }
-  // Exactly `NAO_ENCONTRADO`, not merely "anything but found". Unread and
-  // failed are silence, and silence is not evidence of regularity.
-  if (listaCampo.status !== "NAO_ENCONTRADO") {
+
+  // **Absence as the resolver concluded it, never the raw source state.** The
+  // list answers `ENCONTRADO` whenever any row came back; if the resolver then
+  // refused every one of them, this person is absent from the list. Keying on
+  // the state would call that presence and kill the signal for exactly the
+  // people it exists for. Unread, failed and doubtful all stay silence, and
+  // silence is not evidence of regularity.
+  if (!absenceEstablished(listaCampo)) {
     return false;
   }
 
-  // A manual export is a cut under operator-chosen filters. "Not found under a
-  // filter" is not "not on the list", so only a full-scope export qualifies.
-  const escopo = Object.values(listaCampo.parametrosConsulta)
-    .map((params) => (params as { queryScope?: { complete?: boolean } }).queryScope)
-    .filter((scope): scope is { complete?: boolean } => Boolean(scope));
-  return escopo.length > 0 && escopo.every((scope) => scope.complete === true);
+  // A manual export may be a cut under operator-chosen filters. "Not found
+  // under a filter" is not "not on the list", so only an export the importer
+  // derived as full-scope, for a subject this debtor matches, qualifies. The
+  // flag is derived from the captured preamble and never assumed.
+  const escopo = Object.values(listaCampo.parametrosConsulta).map(
+    (params) => (params as { escopoCompleto?: unknown }).escopoCompleto,
+  );
+  return escopo.length > 0 && escopo.every((completo) => completo === true);
 }
 
 const SIGNALS: readonly SignalDefinition[] = [
