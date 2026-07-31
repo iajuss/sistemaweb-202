@@ -50,6 +50,19 @@ describe("normalizeSourceMoney", () => {
     expect(normalizeSourceMoney("-1.234,565").cents).toBe(-123457n);
   });
 
+  it.each([
+    [`1.234,56${String.fromCharCode(0xa0)}`, "a trailing non-breaking space"],
+    [`${String.fromCharCode(0xa0)}1.234,56`, "a leading non-breaking space"],
+    [`1.234,56${String.fromCharCode(0x202f)}`, "a narrow no-break space"],
+  ])("reads %s padded by %s", (raw) => {
+    // The real PGFN export writes its value filter as "R$<NBSP>150.000,00", so
+    // these characters are demonstrably in this source's vocabulary. They pass
+    // today because JavaScript `trim` removes every Zs code point, not only
+    // U+0020 — this pins that, so replacing `trim` with a hand-rolled strip
+    // later cannot quietly start rejecting amounts that survived publication.
+    expect(normalizeSourceMoney(raw).cents).toBe(123456n);
+  });
+
   it("refuses a value it cannot read rather than inventing zero", () => {
     // An unreadable amount is a source problem to be named, never a debt of
     // nothing.

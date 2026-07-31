@@ -110,7 +110,11 @@ try {
   # A second block appended with no preamble and no header of its own: the real
   # export concatenates distinct queries this way, and a block without
   # provenance has to be marked or refused rather than silently merged.
-  $orphanStart = $lastRow + 2
+  #
+  # Separated by three empty rows, not one. In the real export Excel omits a
+  # single empty row (row 60) from the XML in the middle of the data, so a
+  # one-row gap is formatting and cannot mark a boundary.
+  $orphanStart = $lastRow + 4
   $orphan = @(
     @('***.222.333-**', 'JOSE SANTOS', '', '4.100,00', '4.100,00'),
     @('***.444.555-**', 'MARIANA JOSE SANTOS CRUZ', '', '12.345,678901234', '9.000,00')
