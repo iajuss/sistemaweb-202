@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@panella/adapters": "workspace:*",
+    "@panella/contracts": "workspace:*",
     "@panella/domain": "workspace:*"
   }
 }

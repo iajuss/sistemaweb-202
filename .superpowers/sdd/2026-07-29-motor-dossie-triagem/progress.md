@@ -704,3 +704,85 @@ não porque o estado fosse recusado. Passaram a declarar `escopoCompleto: true`,
 de modo que só a regra de estado pode recusá-los, e aí a mutação cai.
 
 Próximo: Task 11 — API agent-first, contratos e endpoint de prompt.
+
+---
+
+## Task 11: EM ANDAMENTO — API agent-first
+
+Suíte no ponto do commit: 389 unitários (era 361) e 10 de integração, 0 falhas.
+`lint`, `typecheck` e `generate:contracts` saem 0, sem deriva. Integração roda
+contra o container real.
+
+### O que está pronto
+
+**`packages/contracts/src/prompt.ts` — a projeção para prompt, com golden
+test.** O consumidor é um agente de AI, então este texto é contrato de saída
+como qualquer outro: versionado (`prompt_version: 1.0.0`), determinístico e
+preso por golden em `fixtures/prompt/`. Dois goldens: dossiê confirmado e
+dossiê com cobertura insuficiente. 15 testes.
+
+Regras que o texto impõe, cada uma com teste:
+
+- **Campo com vínculo não confirmado tem o valor retido** e sai marcado com o
+  status do vínculo mais as palavras "não confirmado". Alguém publicou aquele
+  dado, mas ninguém estabeleceu que é desta pessoa; imprimir o valor convida o
+  agente a usá-lo assim mesmo. `AMBIGUO` e `PROVAVEL` cobertos separadamente.
+- **Nenhum CPF, inteiro ou mascarado.** Teste procura o CPF completo, o
+  fragmento 4-9 e o formato pontuado.
+- **Fonte que falhou é distinguível de fonte que não achou nada**, e de fonte
+  que ninguém consultou. Os três textos são diferentes entre si.
+- **Cobertura insuficiente diz por extenso que não é indício de mau pagador**
+  nem nota baixa.
+- **A pontuação é descrita como ordenação de esforço**, nunca como previsão.
+
+**`packages/contracts/src/requests.ts` + `packages/application/src/lookup-dossier.ts`
+— consulta por `id_externo` e paginação por cursor.** 13 testes.
+
+- **O único identificador que o chamador segura é o id externo do título.** Não
+  existe consulta por CPF, em corpo, URL ou query. O schema é `.strict()`, então
+  `{ cpf }` e `{ id_externo, cpf }` são recusados **pela forma**, não porque
+  alguém lembrou de checar aquele nome de campo.
+- **A recusa é deliberadamente pobre em informação** (`REQUISICAO_INVALIDA`):
+  ecoar qual chave foi rejeitada confirmaria ao chamador que `cpf` é um campo
+  que o sistema conhece.
+- **Paginação é keyset, não offset**, e o cursor é opaco por contrato: base64url
+  de prioridade + pontuação + id do dossiê, sem nada sobre pessoa. Há teste de
+  que uma entrada nova acima do cursor não empurra página já servida.
+
+### Decisões tomadas inline
+
+1. **`packages/contracts` ganhou `exports` e `index.ts`**, e `application`
+   passou a depender dele. Zod é a fonte única de verdade e o schema publicado
+   é onde a validação de fronteira pertence; a direção `application → contracts
+   → domain` não cria ciclo.
+2. **A frase proibida foi reescrita no domínio.** A explicação da política
+   dizia "não estima probabilidade de pagamento" — e um teste que proíbe a
+   substring não distingue negação de afirmação. Virou "não prevê pagamento",
+   de modo que a proibição do ADR 016 fique verificável por substring. Regra
+   que só dá para checar de um jeito precisa ser escrita para esse jeito
+   funcionar.
+
+### O que falta na Task 11
+
+- **A superfície HTTP.** `apps/web` é stub: não há Next.js instalado, só um
+  `package.json` com um `dev` que imprime "not implemented". O plano nomeia
+  route handlers do Next; instalar o framework agora é dependência nova, com
+  risco conhecido do defeito E-1, para a camada que o próprio enunciado trata
+  como entrega e não como produto. **Preciso da sua decisão** entre instalar o
+  Next e fazer as rotas como no plano, ou expor os mesmos serviços por um
+  servidor `node:http` sem dependência nova, deixando o Next para a Task 12.
+- **OpenAPI das operações novas.** `generate.ts` publica hoje só os schemas de
+  dossiê e classificação. Falta descrever `lookup`, `prioridades` e `prompt`
+  como operações, derivadas do Zod e nunca escritas à mão.
+- **Views redigidas por papel**, previstas no plano e não implementadas.
+- **`assertDossierFactDiscipline` continua sem chamador.** Este era o gatilho:
+  o leitor de snapshot vindo do banco nasce aqui. Segue aberta.
+- **I-2, I-3, M-1 e M-3** de `docs/limitacoes-v1.md` têm a Task 11 como
+  gatilho declarado e continuam abertas — não as fechei, conforme sua
+  instrução de não encostar nelas sem pedido.
+
+### Decisões desta sessão que já estão em arquivo
+
+Todas registradas acima ou nas seções das Tasks 6, 6.5 e 7 deste mesmo
+documento, além de: regra de idioma no `AGENTS.md` (commit `c811164`, escrita
+por você), F-5 e a precisão do reparo de E-1 em `docs/limitacoes-v1.md`.

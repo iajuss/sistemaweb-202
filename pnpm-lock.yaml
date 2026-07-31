@@ -57,6 +57,9 @@ importers:
       '@panella/adapters':
         specifier: workspace:*
         version: link:../adapters
+      '@panella/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@panella/domain':
         specifier: workspace:*
         version: link:../domain

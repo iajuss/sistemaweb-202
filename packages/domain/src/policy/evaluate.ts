@@ -116,7 +116,10 @@ function explain(
   return [
     `Categoria ${category} com pontuação ${score}.`,
     linhas.length > 0 ? `Sinais aplicados: ${linhas.join("; ")}.` : nenhum,
-    "A pontuação ordena esforço de cobrança e não estima probabilidade de pagamento.",
+    // Phrased so that the forbidden wording never appears at all, not even
+    // inside its own denial: a ban a test can only check by substring has to
+    // be checkable by substring.
+    "A pontuação ordena esforço de cobrança e não prevê pagamento.",
   ].join(" ");
 }
 
