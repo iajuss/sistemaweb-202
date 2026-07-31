@@ -110,8 +110,11 @@ fonte mapeada e não integrada. Não adicione fontes sem me perguntar.
 
 ```bash
 pnpm install --frozen-lockfile   # dependências
-pnpm compose:up                  # postgres + keycloak em background
-pnpm migrate                     # prisma migrate deploy no container
+pnpm exec prisma generate        # cliente Prisma (obrigatório em clone novo)
+pnpm compose:up                  # postgres + keycloak, esperando ficarem saudáveis
+pnpm migrate                     # prisma migrate deploy no host, contra o Compose
+pnpm migrate:compose             # o mesmo dentro da rede do Compose; nunca no Windows
+pnpm demo                        # semeia o banco e sobe a API (ver README)
 pnpm test                        # suíte inteira (exige o Compose de pé)
 pnpm test:unit                   # só unitários, sem Docker
 pnpm test:integration            # só PostgreSQL/RLS, exige o Compose
@@ -129,6 +132,7 @@ stack de pé ele falha, e é assim que deve ser.
 **Não rode `docker compose up workspace-dependencies` no host Windows.** Esse
 serviço reescreve `packages/*/node_modules` com reparse points que o Windows não
 resolve, e `pnpm install` não repara. Defeito E-1 em `docs/limitacoes-v1.md`.
+`pnpm migrate:compose` depende dele; é por isso que `pnpm migrate` roda no host.
 
 ## Manutenção deste arquivo
 

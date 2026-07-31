@@ -855,3 +855,127 @@ validador de runtime faz.
 
 **Resta na Task 11 apenas as views redigidas por papel.** Todo o resto do
 escopo da fatia está entregue e verificado.
+
+---
+
+## CHECKPOINT 2026-07-31 — sistema verificado rodando, do Compose aos três endpoints
+
+Fatia em andamento: **nenhuma aberta.** A Task 12 (UI mínima) é a próxima e não
+foi começada. As views redigidas por papel da Task 11 continuam abertas.
+
+Suíte: **445 unitários** (era 418) e **13 de integração** (era 10), 0 falhas, 0
+pulados. `lint`, `typecheck` e `generate:contracts` saem 0, sem deriva. A
+integração roda contra o container real.
+
+### O que faltava para o sistema simplesmente rodar
+
+A auditoria encontrou três buracos entre "as fatias estão fechadas" e "o
+sistema sobe", todos fechados aqui:
+
+1. **Não havia projeção de fonte para observação.** Os adapters emitem as
+   próprias formas, o domínio consome `RawObservation`, e todo teste até aqui
+   construía a segunda à mão. `packages/adapters/src/observations/projection.ts`
+   fecha a costura, e `storage.ts` faz o ida e volta com a linha do banco.
+2. **`server.ts` exportava `createHttpServer` e ninguém o chamava.** Não existia
+   raiz de composição: `pnpm dev` não subia nada.
+3. **`PrismaWalletTitleRepository` não sabia resolver devedor por `id_externo`**,
+   que é o único identificador que o caminho de leitura aceita. Sem isso a rota
+   de lookup não tinha como ser servida pelo banco.
+
+### Decisões tomadas inline
+
+1. **Uma observação por slice declarada.** A cobertura é decidida slice a slice
+   — é isso que separa `NAO_CONSULTADO` de `NAO_ENCONTRADO` —, então colapsar
+   os três sistemas da PGFN num fato só tornaria sistema não lido
+   indistinguível de sistema que não achou nada. A projeção itera o plano, não
+   as inscrições que chegaram.
+2. **Dinheiro atravessa o armazenamento como string de dígitos.** JSON tem um
+   tipo numérico só e ele é float; centavos que voltam por `JSON.parse` como
+   número são centavos que podem voltar errados, e a fonte real já publica
+   `29163886,440000001`. Um `centavos` numérico na volta é recusado.
+3. **Id de observação derivado de fonte + slice + devedor + `collectedAt`.**
+   Reexecutar a mesma coleta cai na mesma linha; coleta nova é fato novo.
+4. **Id de subject derivado de máscara + nome.** O resolvedor deduplica
+   candidatos por esse id: dois ids para uma pessoa fabricariam um empate entre
+   alguém e si mesmo.
+5. **A demo semeia e serve no mesmo processo.** O cofre AEAD é em memória
+   (F-5), então o processo que cifrou o CPF é o único que o lê de volta. O
+   entrypoint recusa banco fora de loopback **antes** de assumir
+   `NODE_ENV=development`, para que a identidade de desenvolvimento nunca possa
+   ser apontada para dado real.
+6. **Carteira de demonstração é fixture própria** (`fixtures/demo/carteira-demo.xlsx`,
+   com gerador commitado ao lado). `fixtures/wallet/titles.xlsx` existe para os
+   casos de borda do leitor; esta existe para o banco semeado contar uma
+   história — as três pessoas foram escolhidas contra as fixtures da PGFN.
+7. **`pnpm migrate` passou a rodar no host**, porque o serviço `migrate` do
+   Compose depende de `workspace-dependencies` e dispara o defeito E-1 que o
+   próprio `AGENTS.md` proíbe rodar no Windows. `pnpm migrate:compose` continua
+   existindo para Linux e CI. `compose:up` ganhou `--wait`.
+
+### Matriz de mutação
+
+| Mutação | Testes que falham |
+|---|---|
+| Slice não lida responde `NAO_ENCONTRADO` | 1 |
+| Parte com erro responde `NAO_ENCONTRADO` | 1 |
+| Portão de máscara da lista manual removido | 1 |
+| Portão de procedência removido | 1 |
+| Id de subject só pela máscara | 1 |
+| Escopo do bloco assumido íntegro | 1 |
+| Centavos serializados como número JSON | 4 |
+| Centavos numéricos aceitos na volta | 1 |
+| Tipo desconhecido responde buraco em vez de erro | 1 |
+| Escopo de carteira removido do lookup por `id_externo` | 1 |
+
+**Dois defeitos encontrados pela própria matriz, não por leitura.** A guarda
+que recusa centavos numéricos na volta **sobreviveu** à primeira passada: não
+havia teste nenhum para ela, que é o defeito I-4 em miniatura; o teste foi
+escrito antes de a matriz ser registrada. E o primeiro rascunho do lookup por
+`id_externo` declarava o escopo de carteira **duas vezes** — na query e num
+pós-filtro —, de modo que remover qualquer uma das duas deixava a suíte verde.
+Duas guardas redundantes não conseguem carregar teste falsificador cada uma, e
+o escopo passou a ser declarado uma vez só.
+
+### Verificação de execução, feita de verdade
+
+Executado nesta ordem, com saída conferida a cada passo: `pnpm exec prisma
+generate` (o cliente não estava gerado — E-2, como previsto), `docker compose up
+-d --wait postgres keycloak` (os dois `Healthy`), `node scripts/migrate.mjs`
+(`2 migrations found`, `No pending migrations to apply`), `pnpm demo` (3
+devedores, 0 linhas em quarentena, três dossiês classificados).
+
+**Os três endpoints responderam 200 sobre socket real**, com dado vindo do
+PostgreSQL e não de fixture em memória:
+
+- `POST /api/v1/carteiras/carteira-demo/dossies/lookup` → dossiê + classificação
+  `COBRANCA_PADRAO`, pontuação 0.4, sinal `divida_ativa_confirmada` aplicado.
+- `GET /api/v1/carteiras/carteira-demo/prioridades` → três itens ordenados,
+  `next_cursor: null`.
+- `GET /api/v1/dossies/dossie-1/prompt?carteira=carteira-demo` → markdown,
+  cobertura SUFICIENTE, 5 de 5 slices conclusivas.
+
+O prompt mostra o comportamento que interessa: `pgfn_dados_abertos_*` sai com
+vínculo `CONFIRMADO`, e `pgfn_lista_*` sai com **valor retido** e vínculo
+`REJEITADO`, porque a lista publica gente com a mesma máscara cujo nome o
+resolvedor recusa. Publicado não é fato sobre esta pessoa.
+
+**Limite honesto da verificação:** ela rodou contra o volume de desenvolvimento
+existente, não contra volume vazio. `migrate deploy` é idempotente e o seed
+reseta o próprio tenant, então a sequência é reprodutível; mas `docker compose
+down -v` é reset de banco e o `AGENTS.md` manda perguntar antes — não perguntei
+nem executei. A partida de volume genuinamente vazio segue não exercitada.
+
+### Documentação
+
+`README.md` reescrito: sequência numerada de clone limpo até os três endpoints,
+com o comando exato de cada passo, a resposta correta de cada um, o curl de cada
+endpoint com um exemplo do corpo devolvido, e as suítes unitária e de integração
+separadas com o que cada uma exige. `AGENTS.md` teve a seção de comandos
+corrigida junto, porque comando documentado que não roda é garantia falsa.
+
+Pendências intocadas por instrução: I-2, M-1, M-3 e P-1.
+
+Próxima ação: **views redigidas por papel** — último item aberto da Task 11.
+`operador_cobranca` nunca vê CPF completo nem evidência de match integral; o
+papel de auditoria lê a trilha sem acesso operacional à carteira. É invariante
+de `AGENTS.md`, então precisa de teste que falhe se for afrouxado.
