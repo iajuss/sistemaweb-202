@@ -161,3 +161,15 @@ Ver ADR 020.
 ## Commits
 
 Sempre pergunte se pode dar commits das mudanças realizadas.
+
+## Protocolo de parada
+
+Quando eu disser "checkpoint", pare imediatamente e, antes de responder:
+1. Commite o estado atual no worktree, marcado como WIP se incompleto.
+2. Atualize o progress.md com: fatia em andamento, o que está pronto,
+   o que falta e pendências abertas.
+3. Grave em disco qualquer evidência que exista só nesta conversa
+   (saída de teste RED, achados de revisão, decisões acordadas).
+4. Responda apenas com o hash do commit e a próxima ação.
+
+Nunca inicie tarefa nova nem despache subagente após um checkpoint.
