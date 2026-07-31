@@ -786,3 +786,53 @@ Regras que o texto impõe, cada uma com teste:
 Todas registradas acima ou nas seções das Tasks 6, 6.5 e 7 deste mesmo
 documento, além de: regra de idioma no `AGENTS.md` (commit `c811164`, escrita
 por você), F-5 e a precisão do reparo de E-1 em `docs/limitacoes-v1.md`.
+
+### Task 11 — superfície HTTP no ar
+
+Suíte: 412 unitários (era 389), 0 falhas. `lint` e `typecheck` em 0. **Os três
+endpoints respondem sobre socket real**, provado por teste que sobe o servidor
+numa porta efêmera e faz `fetch`.
+
+Decisão sua, registrada: **handlers puros sobre `node:http`, sem dependência
+nova.** `apps/web/src/http/router.ts` é função de valor de requisição para
+valor de resposta — testável sem servidor e envolvível pelo Next na Task 12 sem
+reescrever nada. `server.ts` é a única parte que sabe o que é um socket.
+
+Rotas: `POST /api/v1/carteiras/:walletId/dossies/lookup`,
+`GET /api/v1/carteiras/:walletId/prioridades`,
+`GET /api/v1/dossies/:dossierId/prompt`.
+
+**A camada HTTP não virou bypass, e isso é o I-3 deixando de ser teórico.**
+Toda dependência que decide quem é o chamador — provedor de identidade,
+repositório de identidade, repositório de autorização — é fixada na construção
+do router e **não é escolhível por requisição**. O teste que prende isso usa um
+repositório que devolve `tenant-b` contra uma carteira de `tenant-a` e exige
+403: se a requisição pudesse escolher o repositório, ele passaria.
+
+Outras regras que os 23 testes impõem:
+
+- **`lookup` é `POST` e um `GET` na mesma rota devolve 405.** Um `GET` poria o
+  identificador na URL, e dali em todo log de acesso e cache de proxy.
+- **Não existe rota que aceite CPF no caminho** — `/api/v1/dossies/<cpf>` é 404.
+- **Título fora da carteira é 404, não 403.** Um 403 deixaria distinguir título
+  que existe noutra carteira de título que nunca existiu.
+- **Corpo de erro nomeia código, nunca a entrada.** Um corpo que falhou o parse
+  pode conter CPF, e ecoá-lo o colocaria em log.
+- **`cache-control: no-store` em toda resposta.** O dossiê é dado pessoal de
+  pessoa identificada.
+
+**Pendência fechada: `assertDossierFactDiscipline` agora tem chamador.** O
+endpoint de prompt a executa sobre o snapshot lido do armazenamento antes de
+renderizar — que é exatamente a fronteira para a qual ela foi escrita, já que
+um snapshot vindo do banco ou de schema antigo não passou pela composição. Há
+teste que forja um snapshot com `vinculoConfirmado: true` sob vínculo
+`PROVAVEL` e exige 500 com o código do erro.
+
+**O servidor não sobe em produção, por desenho.** Fora de
+`NODE_ENV=development` a emissão de `VerifiedPrincipal` falha fechada em toda
+chamada (ADR 021), então um start em produção não autentica ninguém. É o
+comportamento pretendido até o JWT/JWKS entrar — pendência P-1, inalterada.
+
+Falta ainda na Task 11: **operações no OpenAPI** derivadas do Zod (hoje
+`generate.ts` publica só os schemas de dossiê e classificação) e **views
+redigidas por papel**.

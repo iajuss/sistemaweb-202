@@ -7,6 +7,14 @@ export {
 } from "./authorize-actor.js";
 export { commitWalletImport, previewWalletImport } from "./import-wallet.js";
 export { composeDossierForDebtor } from "./compose-dossier.js";
+export { listPriorities, lookupDossier } from "./lookup-dossier.js";
+export type {
+  LookupDossierInput,
+  LookupDossierResult,
+  PriorityEntry,
+  PriorityPage,
+  WalletTitleLookup,
+} from "./lookup-dossier.js";
 export type {
   ComposeDossierForDebtorInput,
   DebtorObservationReader,

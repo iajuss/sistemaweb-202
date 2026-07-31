@@ -2,8 +2,18 @@
   "name": "@panella/web",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "dev": "node -e \"console.log('Web delivery surface is not implemented yet'); setInterval(() => {}, 1000)\"",
+    "dev": "tsx src/http/server.ts",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@panella/adapters": "workspace:*",
+    "@panella/application": "workspace:*",
+    "@panella/contracts": "workspace:*",
+    "@panella/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.20.6"
   }
 }
