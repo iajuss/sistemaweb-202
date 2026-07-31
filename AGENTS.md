@@ -160,3 +160,11 @@ Quando eu disser "checkpoint", pare imediatamente e, antes de responder:
 4. Responda apenas com o hash do commit e a próxima ação.
 
 Nunca inicie tarefa nova nem despache subagente após um checkpoint.
+
+## Idioma e documentação
+
+- Documentação em português: AGENTS.md, ADRs, progress.md, docs/, relatórios
+  e mensagens de quarentena ou erro exibidas ao operador.
+- Código em inglês: identificadores, nomes de arquivo, comentários e mensagens
+  de commit.
+- Instruções que eu enviar em inglês não mudam essa regra.
