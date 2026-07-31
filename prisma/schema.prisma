@@ -78,8 +78,8 @@ model Title {
   externalId  String
   amountCents BigInt
   dueDate     DateTime
-  wallet      Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id])
-  debtor      Debtor   @relation(fields: [tenantId, debtorId], references: [tenantId, id])
+  wallet      Wallet   @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "Title_wallet_fkey")
+  debtor      Debtor   @relation(fields: [tenantId, debtorId], references: [tenantId, id], map: "Title_debtor_fkey")
 
   @@unique([tenantId, id])
   @@unique([tenantId, walletId, externalId])
@@ -110,8 +110,8 @@ model AgentWalletGrant {
   actions   String[]
   revokedAt DateTime?
   tenant    Tenant    @relation(fields: [tenantId], references: [id])
-  actor     ActorIdentity @relation(fields: [tenantId, actorId], references: [tenantId, id])
-  wallet    Wallet    @relation(fields: [tenantId, walletId], references: [tenantId, id])
+  actor     ActorIdentity @relation(fields: [tenantId, actorId], references: [tenantId, id], map: "AgentWalletGrant_actor_fkey")
+  wallet    Wallet    @relation(fields: [tenantId, walletId], references: [tenantId, id], map: "AgentWalletGrant_wallet_fkey")
 
   @@unique([tenantId, id])
   @@unique([tenantId, actorId, walletId])
@@ -128,7 +128,7 @@ model Observation {
   payload     Json?
   collectedAt DateTime
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
-  debtor      Debtor       @relation(fields: [tenantId, debtorId], references: [tenantId, id])
+  debtor      Debtor       @relation(fields: [tenantId, debtorId], references: [tenantId, id], map: "Observation_debtor_fkey")
 
   @@unique([tenantId, id])
   @@index([tenantId, debtorId, source])
