@@ -22,6 +22,50 @@
 
 ---
 
+## Reordenação para caminho vertical fino (2026-07-31)
+
+Decisão do usuário por prazo: entrega no domingo, com as fatias 1–3 fechadas e
+nenhuma das quatro funcionalidades do enunciado funcionando. O objetivo passa a
+ser **atravessar o sistema de ponta a ponta com as quatro funcionalidades
+estreitas**, não completar duas delas em profundidade.
+
+**Ordem de execução:** 4 → 8 → 5 → 6 → 7 → 11 → 9 → 10 → 12.
+
+| Ordem | Task | Entrega estreita |
+|---|---|---|
+| 1 | 4 | Importação de carteira (CSV/XLSX, quarentena) |
+| 2 | 8 | PGFN Dados Abertos — uma fonte só, funcionando |
+| 3 | 5 | Resolução de identidade |
+| 4 | 6 | Observações, cobertura e dossiê |
+| 5 | 7 | Política de triagem e desfechos |
+| 6 | 11 | API agent-first, contratos e endpoint de prompt |
+
+**Escopo reduzido do que sobra:**
+
+- **Task 9** vira documentação. QSA/RFB e Portal da Transparência ficam como
+  fontes **mapeadas e não integradas** em `docs/fontes.md`, com adapter stub. O
+  enunciado autoriza isso explicitamente.
+- **Task 10** fica na política já desenhada em ADR 009, com job de expurgo
+  parcial.
+- **Task 12** vira UI mínima: uma tela de prioridades da carteira e uma de
+  dossiê. Sem tela de revisões.
+
+**Entregáveis baratos que o enunciado pede, tratados como obrigatórios:**
+`docs/fontes.md` completo, `docs/lgpd.md` com base legal por fonte, `README.md`
+com setup reproduzível em um comando, e o conjunto pequeno de casos de teste
+conferíveis à mão.
+
+**Modo de execução a partir da Task 4: inline.** Sem subagente, sem revisor
+separado, sem re-revisão. O ciclo de três agentes valeu na fatia de segurança e
+não se paga para importar CSV. TDD com RED observado e verificação antes de
+declarar pronto continuam valendo integralmente. Parar e perguntar só se algo
+exigir afrouxar invariante do `AGENTS.md`.
+
+**Pendências documentadas, não implementadas:** ver `docs/limitacoes-v1.md` e o
+ledger. Nenhuma delas é exercitável sem superfície HTTP, que só chega na Task 11.
+
+---
+
 ## File map
 
 | Caminho | Responsabilidade |
