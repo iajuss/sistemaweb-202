@@ -1,0 +1,466 @@
+# Review package: 9eb1063..65b62cb
+
+## Commits
+65b62cb fix: force insufficient coverage and reject invalid major schemas
+ae1554e chore: checkpoint task 2 work in progress
+
+## Files changed
+ .../2026-07-29-motor-dossie-triagem/progress.md    |   8 +
+ packages/contracts/generated/openapi.json          | 283 ++++++++++++++-------
+ packages/contracts/src/classification-schema.ts    |  15 +-
+ packages/contracts/src/dossier-schema.ts           |   9 +-
+ .../contracts/src/schema-compatibility.test.ts     |  25 +-
+ 5 files changed, 237 insertions(+), 103 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md
+new file mode 100644
+index 0000000..8860021
+--- /dev/null
++++ b/.superpowers/sdd/2026-07-29-motor-dossie-triagem/progress.md
+@@ -0,0 +1,8 @@
++# SDD ledger — plan: .agents/plans/2026-07-29-motor-dossie-triagem.md
++
++Execution started from branch `codex/dossie-triagem` at commit `f9575b8`.
++
++Task 2: WIP — implementation commits 587d70f and 9eb1063. First review requested changes: monetary contract accepted numbers; classification lacked required cobertura and confianca_global; compatibility checking was permissive. The corrective commit 9eb1063 states those three points are addressed, but the correction has not been re-reviewed; therefore the Task 2 review remains incomplete. Docker Compose runtime verification is still pending because Docker is unavailable in this environment.
++
++Task 1: fix round 1/5 (1 addressed, 0 open — Compose dependency install race; commits d744a67..c436178)
++Task 1: complete (commits f9575b8..c436178, review clean)
+diff --git a/packages/contracts/generated/openapi.json b/packages/contracts/generated/openapi.json
+index 03b06fd..1712b64 100644
+--- a/packages/contracts/generated/openapi.json
++++ b/packages/contracts/generated/openapi.json
+@@ -529,111 +529,208 @@
+         "required": [
+           "schema_version",
+           "dossier_id",
+           "composed_at",
+           "fields"
+         ],
+         "additionalProperties": false
+       },
+       "Classification": {
+         "$schema": "https://json-schema.org/draft/2020-12/schema",
+-        "type": "object",
+-        "properties": {
+-          "schema_version": {
+-            "type": "string",
+-            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+-          },
+-          "classification_id": {
+-            "type": "string",
+-            "minLength": 1
+-          },
+-          "dossier_id": {
+-            "type": "string",
+-            "minLength": 1
+-          },
+-          "policy_version": {
+-            "type": "string",
+-            "minLength": 1
+-          },
+-          "classified_at": {
+-            "type": "string",
+-            "format": "date-time",
+-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+-          },
+-          "category": {
+-            "type": "string",
+-            "minLength": 1
+-          },
+-          "operational_priority": {
+-            "type": "integer",
+-            "minimum": 0,
+-            "maximum": 9007199254740991
+-          },
+-          "primary_strategy": {
+-            "type": "string",
+-            "minLength": 1
+-          },
+-          "cobertura": {
+-            "type": "string",
+-            "enum": [
+-              "SUFICIENTE",
+-              "INSUFICIENTE"
+-            ]
+-          },
+-          "confianca_global": {
+-            "type": "number",
+-            "minimum": 0,
+-            "maximum": 1
+-          },
+-          "signals": {
+-            "type": "array",
+-            "items": {
+-              "type": "object",
+-              "properties": {
+-                "nome": {
+-                  "type": "string",
+-                  "minLength": 1
+-                },
+-                "peso": {
+-                  "type": "number"
+-                },
+-                "fonte": {
+-                  "type": "string",
+-                  "minLength": 1
+-                },
+-                "aplicado": {
+-                  "type": "boolean"
++        "anyOf": [
++          {
++            "type": "object",
++            "properties": {
++              "schema_version": {
++                "type": "string",
++                "pattern": "^\\d+\\.\\d+\\.\\d+$"
++              },
++              "classification_id": {
++                "type": "string",
++                "minLength": 1
++              },
++              "dossier_id": {
++                "type": "string",
++                "minLength": 1
++              },
++              "policy_version": {
++                "type": "string",
++                "minLength": 1
++              },
++              "classified_at": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "operational_priority": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 9007199254740991
++              },
++              "primary_strategy": {
++                "type": "string",
++                "minLength": 1
++              },
++              "confianca_global": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "signals": {
++                "type": "array",
++                "items": {
++                  "type": "object",
++                  "properties": {
++                    "nome": {
++                      "type": "string",
++                      "minLength": 1
++                    },
++                    "peso": {
++                      "type": "number"
++                    },
++                    "fonte": {
++                      "type": "string",
++                      "minLength": 1
++                    },
++                    "aplicado": {
++                      "type": "boolean"
++                    }
++                  },
++                  "required": [
++                    "nome",
++                    "peso",
++                    "fonte",
++                    "aplicado"
++                  ],
++                  "additionalProperties": false
+                 }
+               },
+-              "required": [
+-                "nome",
+-                "peso",
+-                "fonte",
+-                "aplicado"
+-              ],
+-              "additionalProperties": false
+-            }
++              "explicacao": {
++                "type": "string",
++                "minLength": 1
++              },
++              "category": {
++                "type": "string",
++                "minLength": 1
++              },
++              "cobertura": {
++                "type": "string",
++                "const": "SUFICIENTE"
++              }
++            },
++            "required": [
++              "schema_version",
++              "classification_id",
++              "dossier_id",
++              "policy_version",
++              "classified_at",
++              "operational_priority",
++              "primary_strategy",
++              "confianca_global",
++              "signals",
++              "explicacao",
++              "category",
++              "cobertura"
++            ],
++            "additionalProperties": false
+           },
+-          "explicacao": {
+-            "type": "string",
+-            "minLength": 1
++          {
++            "type": "object",
++            "properties": {
++              "schema_version": {
++                "type": "string",
++                "pattern": "^\\d+\\.\\d+\\.\\d+$"
++              },
++              "classification_id": {
++                "type": "string",
++                "minLength": 1
++              },
++              "dossier_id": {
++                "type": "string",
++                "minLength": 1
++              },
++              "policy_version": {
++                "type": "string",
++                "minLength": 1
++              },
++              "classified_at": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "operational_priority": {
++                "type": "integer",
++                "minimum": 0,
++                "maximum": 9007199254740991
++              },
++              "primary_strategy": {
++                "type": "string",
++                "minLength": 1
++              },
++              "confianca_global": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "signals": {
++                "type": "array",
++                "items": {
++                  "type": "object",
++                  "properties": {
++                    "nome": {
++                      "type": "string",
++                      "minLength": 1
++                    },
++                    "peso": {
++                      "type": "number"
++                    },
++                    "fonte": {
++                      "type": "string",
++                      "minLength": 1
++                    },
++                    "aplicado": {
++                      "type": "boolean"
++                    }
++                  },
++                  "required": [
++                    "nome",
++                    "peso",
++                    "fonte",
++                    "aplicado"
++                  ],
++                  "additionalProperties": false
++                }
++              },
++              "explicacao": {
++                "type": "string",
++                "minLength": 1
++              },
++              "category": {
++                "type": "string",
++                "const": "DADOS_INSUFICIENTES"
++              },
++              "cobertura": {
++                "type": "string",
++                "const": "INSUFICIENTE"
++              }
++            },
++            "required": [
++              "schema_version",
++              "classification_id",
++              "dossier_id",
++              "policy_version",
++              "classified_at",
++              "operational_priority",
++              "primary_strategy",
++              "confianca_global",
++              "signals",
++              "explicacao",
++              "category",
++              "cobertura"
++            ],
++            "additionalProperties": false
+           }
+-        },
+-        "required": [
+-          "schema_version",
+-          "classification_id",
+-          "dossier_id",
+-          "policy_version",
+-          "classified_at",
+-          "category",
+-          "operational_priority",
+-          "primary_strategy",
+-          "cobertura",
+-          "confianca_global",
+-          "signals",
+-          "explicacao"
+-        ],
+-        "additionalProperties": false
++        ]
+       }
+     }
+   }
+ }
+diff --git a/packages/contracts/src/classification-schema.ts b/packages/contracts/src/classification-schema.ts
+index b5f7378..0208a78 100644
+--- a/packages/contracts/src/classification-schema.ts
++++ b/packages/contracts/src/classification-schema.ts
+@@ -1,23 +1,32 @@
+ import { z } from "zod";
+ 
+-export const ClassificationSchema = z.object({
++const ClassificationBaseSchema = z.object({
+   schema_version: z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED"),
+   classification_id: z.string().min(1),
+   dossier_id: z.string().min(1),
+   policy_version: z.string().min(1),
+   classified_at: z.iso.datetime(),
+-  category: z.string().min(1),
+   operational_priority: z.number().int().nonnegative(),
+   primary_strategy: z.string().min(1),
+-  cobertura: z.enum(["SUFICIENTE", "INSUFICIENTE"]),
+   confianca_global: z.number().min(0).max(1),
+   signals: z.array(z.object({
+     nome: z.string().min(1),
+     peso: z.number(),
+     fonte: z.string().min(1),
+     aplicado: z.boolean(),
+   }).strict()),
+   explicacao: z.string().min(1),
+ }).strict();
+ 
++export const ClassificationSchema = z.union([
++  ClassificationBaseSchema.extend({
++    category: z.string().min(1),
++    cobertura: z.literal("SUFICIENTE"),
++  }).strict(),
++  ClassificationBaseSchema.extend({
++    category: z.literal("DADOS_INSUFICIENTES"),
++    cobertura: z.literal("INSUFICIENTE"),
++  }).strict(),
++]);
++
+ export type Classification = z.infer<typeof ClassificationSchema>;
+diff --git a/packages/contracts/src/dossier-schema.ts b/packages/contracts/src/dossier-schema.ts
+index feadbf9..e74c3c3 100644
+--- a/packages/contracts/src/dossier-schema.ts
++++ b/packages/contracts/src/dossier-schema.ts
+@@ -68,21 +68,18 @@ export type Dossier = z.infer<typeof DossierSchema>;
+ 
+ function majorVersion(version: string): string {
+   return version.split(".", 1)[0] ?? "";
+ }
+ 
+ export function assertSchemaCompatibility(
+   published: z.infer<typeof DossierSchema>,
+   candidate: unknown,
+ ): void {
+   const result = DossierSchema.safeParse(candidate);
+-  if (result.success) {
+-    return;
++  if (!result.success) {
++    throw new TypeError("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
+   }
+ 
+-  const candidateVersion = z.object({ schema_version: SemanticVersionSchema }).safeParse(candidate);
+-  if (candidateVersion.success && majorVersion(candidateVersion.data.schema_version) !== majorVersion(published.schema_version)) {
++  if (majorVersion(result.data.schema_version) !== majorVersion(published.schema_version)) {
+     return;
+   }
+-
+-  throw new TypeError("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
+ }
+diff --git a/packages/contracts/src/schema-compatibility.test.ts b/packages/contracts/src/schema-compatibility.test.ts
+index 262bc44..f860dd6 100644
+--- a/packages/contracts/src/schema-compatibility.test.ts
++++ b/packages/contracts/src/schema-compatibility.test.ts
+@@ -64,21 +64,21 @@ describe("dossier schema compatibility", () => {
+     expect(() => assertSchemaCompatibility(published, {
+       schema_version: "1.1.0",
+       dossier_id: "dossier-1",
+       composed_at: "2026-07-29T00:00:00.000Z",
+     })).toThrow("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
+ 
+     expect(() => assertSchemaCompatibility(published, {
+       schema_version: "2.0.0",
+       dossier_id: "dossier-1",
+       composed_at: "2026-07-29T00:00:00.000Z",
+-    })).not.toThrow();
++    })).toThrow("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
+   });
+ 
+   it("requires coverage and global confidence for agent-facing classifications", () => {
+     const classification = {
+       schema_version: "1.0.0",
+       classification_id: "classification-1",
+       dossier_id: "dossier-1",
+       policy_version: "2026-07-a",
+       classified_at: "2026-07-29T00:00:00.000Z",
+       category: "TRATAMENTO_LEVE",
+@@ -89,11 +89,34 @@ describe("dossier schema compatibility", () => {
+       cobertura: "SUFICIENTE",
+       confianca_global: 0.8,
+     };
+ 
+     expect(ClassificationSchema.safeParse(classification).success).toBe(true);
+     const withoutRequiredFields: Partial<typeof classification> = { ...classification };
+     delete withoutRequiredFields.cobertura;
+     delete withoutRequiredFields.confianca_global;
+     expect(ClassificationSchema.safeParse(withoutRequiredFields).success).toBe(false);
+   });
++
++  it("requires DADOS_INSUFICIENTES when coverage is insufficient", () => {
++    const classification = {
++      schema_version: "1.0.0",
++      classification_id: "classification-insufficient-coverage",
++      dossier_id: "dossier-1",
++      policy_version: "2026-07-a",
++      classified_at: "2026-07-29T00:00:00.000Z",
++      category: "TRATAMENTO_LEVE",
++      operational_priority: 3,
++      primary_strategy: "CONTATO_INICIAL",
++      cobertura: "INSUFICIENTE",
++      confianca_global: 0.8,
++      signals: [],
++      explicacao: "A cobertura insuficiente deve impedir uma classificacao acionavel.",
++    };
++
++    expect(ClassificationSchema.safeParse(classification).success).toBe(false);
++    expect(ClassificationSchema.safeParse({
++      ...classification,
++      category: "DADOS_INSUFICIENTES",
++    }).success).toBe(true);
++  });
+ });

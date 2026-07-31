@@ -1,0 +1,1430 @@
+# Review package: 587d70f..9eb1063
+
+## Commits
+9eb1063 fix: harden versioned contract schemas
+
+## Files changed
+ packages/contracts/generated/dossier.schema.json   | 523 +++++++++++++++++---
+ packages/contracts/generated/openapi.json          | 537 ++++++++++++++++++---
+ packages/contracts/src/classification-schema.ts    |   6 +-
+ packages/contracts/src/dossier-schema.ts           |  46 +-
+ .../contracts/src/schema-compatibility.test.ts     |  73 +++
+ 5 files changed, 1071 insertions(+), 114 deletions(-)
+
+## Diff
+diff --git a/packages/contracts/generated/dossier.schema.json b/packages/contracts/generated/dossier.schema.json
+index cc7413f..eb9256b 100644
+--- a/packages/contracts/generated/dossier.schema.json
++++ b/packages/contracts/generated/dossier.schema.json
+@@ -14,99 +14,514 @@
+       "type": "string",
+       "format": "date-time",
+       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+     },
+     "fields": {
+       "type": "object",
+       "propertyNames": {
+         "type": "string"
+       },
+       "additionalProperties": {
+-        "type": "object",
+-        "properties": {
+-          "valor": {
+-            "anyOf": [
+-              {},
+-              {
+-                "type": "null"
++        "anyOf": [
++          {
++            "type": "object",
++            "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
++              "fonte": {
++                "type": "object",
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
++                },
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              },
++              "tipo_valor": {
++                "type": "string",
++                "const": "MONETARIO_CENTAVOS"
++              },
++              "valor": {
++                "type": "string",
++                "pattern": "^-?\\d+$"
+               }
+-            ]
+-          },
+-          "status": {
+-            "type": "string",
+-            "enum": [
+-              "ENCONTRADO",
+-              "NAO_ENCONTRADO",
+-              "NAO_CONSULTADO",
+-              "ERRO_NA_FONTE"
+-            ]
++            },
++            "required": [
++              "status",
++              "fonte",
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
++            ],
++            "additionalProperties": false
+           },
+-          "fonte": {
++          {
+             "type": "object",
+             "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
+               "fonte": {
++                "type": "object",
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
++                },
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              },
++              "tipo_valor": {
+                 "type": "string",
+-                "minLength": 1
++                "const": "TEXTO"
+               },
+-              "parametros_consulta": {
++              "valor": {
++                "type": "string"
++              }
++            },
++            "required": [
++              "status",
++              "fonte",
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
++            ],
++            "additionalProperties": false
++          },
++          {
++            "type": "object",
++            "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
++              "fonte": {
+                 "type": "object",
+-                "propertyNames": {
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
++                },
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
+                   "type": "string"
++                }
++              },
++              "tipo_valor": {
++                "type": "string",
++                "const": "BOOLEANO"
++              },
++              "valor": {
++                "type": "boolean"
++              }
++            },
++            "required": [
++              "status",
++              "fonte",
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
++            ],
++            "additionalProperties": false
++          },
++          {
++            "type": "object",
++            "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
++              "fonte": {
++                "type": "object",
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
+                 },
+-                "additionalProperties": {}
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              },
++              "tipo_valor": {
++                "type": "string",
++                "const": "DATA_HORA"
++              },
++              "valor": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+               }
+             },
+             "required": [
++              "status",
+               "fonte",
+-              "parametros_consulta"
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
+             ],
+             "additionalProperties": false
+           },
+-          "coletado_em": {
+-            "type": "string",
+-            "format": "date-time",
+-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++          {
++            "type": "object",
++            "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
++              "fonte": {
++                "type": "object",
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
++                },
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
++                "type": "string",
++                "format": "date-time",
++                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++              },
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              },
++              "tipo_valor": {
++                "type": "string",
++                "const": "LISTA_TEXTO"
++              },
++              "valor": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              }
++            },
++            "required": [
++              "status",
++              "fonte",
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
++            ],
++            "additionalProperties": false
+           },
+-          "data_referencia": {
+-            "anyOf": [
+-              {
++          {
++            "type": "object",
++            "properties": {
++              "status": {
++                "type": "string",
++                "enum": [
++                  "ENCONTRADO",
++                  "NAO_ENCONTRADO",
++                  "NAO_CONSULTADO",
++                  "ERRO_NA_FONTE"
++                ]
++              },
++              "fonte": {
++                "type": "object",
++                "properties": {
++                  "fonte": {
++                    "type": "string",
++                    "minLength": 1
++                  },
++                  "parametros_consulta": {
++                    "type": "object",
++                    "propertyNames": {
++                      "type": "string"
++                    },
++                    "additionalProperties": {}
++                  }
++                },
++                "required": [
++                  "fonte",
++                  "parametros_consulta"
++                ],
++                "additionalProperties": false
++              },
++              "coletado_em": {
+                 "type": "string",
+                 "format": "date-time",
+                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+               },
+-              {
++              "data_referencia": {
++                "anyOf": [
++                  {
++                    "type": "string",
++                    "format": "date-time",
++                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                  },
++                  {
++                    "type": "null"
++                  }
++                ]
++              },
++              "confianca_vinculo": {
++                "type": "number",
++                "minimum": 0,
++                "maximum": 1
++              },
++              "evidencia_vinculo": {
++                "type": "array",
++                "items": {
++                  "type": "string"
++                }
++              },
++              "tipo_valor": {
++                "type": "string",
++                "const": "SEM_VALOR"
++              },
++              "valor": {
+                 "type": "null"
+               }
+-            ]
+-          },
+-          "confianca_vinculo": {
+-            "type": "number",
+-            "minimum": 0,
+-            "maximum": 1
+-          },
+-          "evidencia_vinculo": {
+-            "type": "array",
+-            "items": {
+-              "type": "string"
+-            }
++            },
++            "required": [
++              "status",
++              "fonte",
++              "coletado_em",
++              "data_referencia",
++              "confianca_vinculo",
++              "evidencia_vinculo",
++              "tipo_valor",
++              "valor"
++            ],
++            "additionalProperties": false
+           }
+-        },
+-        "required": [
+-          "valor",
+-          "status",
+-          "fonte",
+-          "coletado_em",
+-          "data_referencia",
+-          "confianca_vinculo",
+-          "evidencia_vinculo"
+-        ],
+-        "additionalProperties": false
++        ]
+       }
+     }
+   },
+   "required": [
+     "schema_version",
+     "dossier_id",
+     "composed_at",
+     "fields"
+   ],
+   "additionalProperties": false
+diff --git a/packages/contracts/generated/openapi.json b/packages/contracts/generated/openapi.json
+index 0345caa..03b06fd 100644
+--- a/packages/contracts/generated/openapi.json
++++ b/packages/contracts/generated/openapi.json
+@@ -22,99 +22,514 @@
+             "type": "string",
+             "format": "date-time",
+             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+           },
+           "fields": {
+             "type": "object",
+             "propertyNames": {
+               "type": "string"
+             },
+             "additionalProperties": {
+-              "type": "object",
+-              "properties": {
+-                "valor": {
+-                  "anyOf": [
+-                    {},
+-                    {
+-                      "type": "null"
++              "anyOf": [
++                {
++                  "type": "object",
++                  "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
++                    "fonte": {
++                      "type": "object",
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
++                      },
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
++                    },
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "MONETARIO_CENTAVOS"
++                    },
++                    "valor": {
++                      "type": "string",
++                      "pattern": "^-?\\d+$"
+                     }
+-                  ]
+-                },
+-                "status": {
+-                  "type": "string",
+-                  "enum": [
+-                    "ENCONTRADO",
+-                    "NAO_ENCONTRADO",
+-                    "NAO_CONSULTADO",
+-                    "ERRO_NA_FONTE"
+-                  ]
++                  },
++                  "required": [
++                    "status",
++                    "fonte",
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
++                  ],
++                  "additionalProperties": false
+                 },
+-                "fonte": {
++                {
+                   "type": "object",
+                   "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
+                     "fonte": {
++                      "type": "object",
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
++                      },
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
+                       "type": "string",
+-                      "minLength": 1
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
+                     },
+-                    "parametros_consulta": {
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "TEXTO"
++                    },
++                    "valor": {
++                      "type": "string"
++                    }
++                  },
++                  "required": [
++                    "status",
++                    "fonte",
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
++                  ],
++                  "additionalProperties": false
++                },
++                {
++                  "type": "object",
++                  "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
++                    "fonte": {
+                       "type": "object",
+-                      "propertyNames": {
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
++                      },
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
++                    },
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
+                         "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "BOOLEANO"
++                    },
++                    "valor": {
++                      "type": "boolean"
++                    }
++                  },
++                  "required": [
++                    "status",
++                    "fonte",
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
++                  ],
++                  "additionalProperties": false
++                },
++                {
++                  "type": "object",
++                  "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
++                    "fonte": {
++                      "type": "object",
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
+                       },
+-                      "additionalProperties": {}
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
++                    },
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "DATA_HORA"
++                    },
++                    "valor": {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                     }
+                   },
+                   "required": [
++                    "status",
+                     "fonte",
+-                    "parametros_consulta"
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
+                   ],
+                   "additionalProperties": false
+                 },
+-                "coletado_em": {
+-                  "type": "string",
+-                  "format": "date-time",
+-                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                {
++                  "type": "object",
++                  "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
++                    "fonte": {
++                      "type": "object",
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
++                      },
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
++                      "type": "string",
++                      "format": "date-time",
++                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                    },
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
++                    },
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "LISTA_TEXTO"
++                    },
++                    "valor": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    }
++                  },
++                  "required": [
++                    "status",
++                    "fonte",
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
++                  ],
++                  "additionalProperties": false
+                 },
+-                "data_referencia": {
+-                  "anyOf": [
+-                    {
++                {
++                  "type": "object",
++                  "properties": {
++                    "status": {
++                      "type": "string",
++                      "enum": [
++                        "ENCONTRADO",
++                        "NAO_ENCONTRADO",
++                        "NAO_CONSULTADO",
++                        "ERRO_NA_FONTE"
++                      ]
++                    },
++                    "fonte": {
++                      "type": "object",
++                      "properties": {
++                        "fonte": {
++                          "type": "string",
++                          "minLength": 1
++                        },
++                        "parametros_consulta": {
++                          "type": "object",
++                          "propertyNames": {
++                            "type": "string"
++                          },
++                          "additionalProperties": {}
++                        }
++                      },
++                      "required": [
++                        "fonte",
++                        "parametros_consulta"
++                      ],
++                      "additionalProperties": false
++                    },
++                    "coletado_em": {
+                       "type": "string",
+                       "format": "date-time",
+                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                     },
+-                    {
++                    "data_referencia": {
++                      "anyOf": [
++                        {
++                          "type": "string",
++                          "format": "date-time",
++                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
++                        },
++                        {
++                          "type": "null"
++                        }
++                      ]
++                    },
++                    "confianca_vinculo": {
++                      "type": "number",
++                      "minimum": 0,
++                      "maximum": 1
++                    },
++                    "evidencia_vinculo": {
++                      "type": "array",
++                      "items": {
++                        "type": "string"
++                      }
++                    },
++                    "tipo_valor": {
++                      "type": "string",
++                      "const": "SEM_VALOR"
++                    },
++                    "valor": {
+                       "type": "null"
+                     }
+-                  ]
+-                },
+-                "confianca_vinculo": {
+-                  "type": "number",
+-                  "minimum": 0,
+-                  "maximum": 1
+-                },
+-                "evidencia_vinculo": {
+-                  "type": "array",
+-                  "items": {
+-                    "type": "string"
+-                  }
++                  },
++                  "required": [
++                    "status",
++                    "fonte",
++                    "coletado_em",
++                    "data_referencia",
++                    "confianca_vinculo",
++                    "evidencia_vinculo",
++                    "tipo_valor",
++                    "valor"
++                  ],
++                  "additionalProperties": false
+                 }
+-              },
+-              "required": [
+-                "valor",
+-                "status",
+-                "fonte",
+-                "coletado_em",
+-                "data_referencia",
+-                "confianca_vinculo",
+-                "evidencia_vinculo"
+-              ],
+-              "additionalProperties": false
++              ]
+             }
+           }
+         },
+         "required": [
+           "schema_version",
+           "dossier_id",
+           "composed_at",
+           "fields"
+         ],
+         "additionalProperties": false
+@@ -150,20 +565,32 @@
+           },
+           "operational_priority": {
+             "type": "integer",
+             "minimum": 0,
+             "maximum": 9007199254740991
+           },
+           "primary_strategy": {
+             "type": "string",
+             "minLength": 1
+           },
++          "cobertura": {
++            "type": "string",
++            "enum": [
++              "SUFICIENTE",
++              "INSUFICIENTE"
++            ]
++          },
++          "confianca_global": {
++            "type": "number",
++            "minimum": 0,
++            "maximum": 1
++          },
+           "signals": {
+             "type": "array",
+             "items": {
+               "type": "object",
+               "properties": {
+                 "nome": {
+                   "type": "string",
+                   "minLength": 1
+                 },
+                 "peso": {
+@@ -193,18 +620,20 @@
+         },
+         "required": [
+           "schema_version",
+           "classification_id",
+           "dossier_id",
+           "policy_version",
+           "classified_at",
+           "category",
+           "operational_priority",
+           "primary_strategy",
++          "cobertura",
++          "confianca_global",
+           "signals",
+           "explicacao"
+         ],
+         "additionalProperties": false
+       }
+     }
+   }
+ }
+diff --git a/packages/contracts/src/classification-schema.ts b/packages/contracts/src/classification-schema.ts
+index d30355c..b5f7378 100644
+--- a/packages/contracts/src/classification-schema.ts
++++ b/packages/contracts/src/classification-schema.ts
+@@ -2,20 +2,22 @@ import { z } from "zod";
+ 
+ export const ClassificationSchema = z.object({
+   schema_version: z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED"),
+   classification_id: z.string().min(1),
+   dossier_id: z.string().min(1),
+   policy_version: z.string().min(1),
+   classified_at: z.iso.datetime(),
+   category: z.string().min(1),
+   operational_priority: z.number().int().nonnegative(),
+   primary_strategy: z.string().min(1),
++  cobertura: z.enum(["SUFICIENTE", "INSUFICIENTE"]),
++  confianca_global: z.number().min(0).max(1),
+   signals: z.array(z.object({
+     nome: z.string().min(1),
+     peso: z.number(),
+     fonte: z.string().min(1),
+     aplicado: z.boolean(),
+-  })),
++  }).strict()),
+   explicacao: z.string().min(1),
+-});
++}).strict();
+ 
+ export type Classification = z.infer<typeof ClassificationSchema>;
+diff --git a/packages/contracts/src/dossier-schema.ts b/packages/contracts/src/dossier-schema.ts
+index 084be73..feadbf9 100644
+--- a/packages/contracts/src/dossier-schema.ts
++++ b/packages/contracts/src/dossier-schema.ts
+@@ -1,36 +1,74 @@
+ import { SourceStatusSchema } from "@panella/domain";
+ import { z } from "zod";
+ 
+ const SemanticVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, "SEMVER_REQUIRED");
+ 
+ export const SourceProvenanceSchema = z.object({
+   fonte: z.string().min(1),
+   parametros_consulta: z.record(z.string(), z.unknown()),
+-});
++}).strict();
+ 
+-export const FieldEnvelopeSchema = z.object({
+-  valor: z.unknown().nullable(),
++const FieldEnvelopeBaseSchema = z.object({
+   status: SourceStatusSchema,
+   fonte: SourceProvenanceSchema,
+   coletado_em: z.iso.datetime(),
+   data_referencia: z.iso.datetime().nullable(),
+   confianca_vinculo: z.number().min(0).max(1),
+   evidencia_vinculo: z.array(z.string()),
+ });
+ 
++export const MonetaryFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("MONETARIO_CENTAVOS"),
++  valor: z.string().regex(/^-?\d+$/, "CENTAVOS_SERIALIZADOS_COMO_STRING_REQUIRED"),
++}).strict();
++
++export const TextFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("TEXTO"),
++  valor: z.string(),
++}).strict();
++
++export const BooleanFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("BOOLEANO"),
++  valor: z.boolean(),
++}).strict();
++
++export const DateTimeFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("DATA_HORA"),
++  valor: z.iso.datetime(),
++}).strict();
++
++export const TextListFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("LISTA_TEXTO"),
++  valor: z.array(z.string()),
++}).strict();
++
++export const EmptyFieldEnvelopeSchema = FieldEnvelopeBaseSchema.extend({
++  tipo_valor: z.literal("SEM_VALOR"),
++  valor: z.null(),
++}).strict();
++
++export const FieldEnvelopeSchema = z.discriminatedUnion("tipo_valor", [
++  MonetaryFieldEnvelopeSchema,
++  TextFieldEnvelopeSchema,
++  BooleanFieldEnvelopeSchema,
++  DateTimeFieldEnvelopeSchema,
++  TextListFieldEnvelopeSchema,
++  EmptyFieldEnvelopeSchema,
++]);
++
+ export const DossierSchema = z.object({
+   schema_version: SemanticVersionSchema,
+   dossier_id: z.string().min(1),
+   composed_at: z.iso.datetime(),
+   fields: z.record(z.string(), FieldEnvelopeSchema),
+-});
++}).strict();
+ 
+ export type FieldEnvelope = z.infer<typeof FieldEnvelopeSchema>;
+ export type Dossier = z.infer<typeof DossierSchema>;
+ 
+ function majorVersion(version: string): string {
+   return version.split(".", 1)[0] ?? "";
+ }
+ 
+ export function assertSchemaCompatibility(
+   published: z.infer<typeof DossierSchema>,
+diff --git a/packages/contracts/src/schema-compatibility.test.ts b/packages/contracts/src/schema-compatibility.test.ts
+index 47c93d2..262bc44 100644
+--- a/packages/contracts/src/schema-compatibility.test.ts
++++ b/packages/contracts/src/schema-compatibility.test.ts
+@@ -1,26 +1,99 @@
+ import { describe, expect, it } from "vitest";
+ 
++import { ClassificationSchema } from "./classification-schema.js";
+ import { DossierSchema, assertSchemaCompatibility } from "./dossier-schema.js";
+ 
++const envelopeBase = {
++  status: "ENCONTRADO",
++  fonte: { fonte: "PGFN", parametros_consulta: {} },
++  coletado_em: "2026-07-29T00:00:00.000Z",
++  data_referencia: "2026-07-01T00:00:00.000Z",
++  confianca_vinculo: 1,
++  evidencia_vinculo: ["fixture_sintetica"],
++} as const;
++
+ describe("dossier schema compatibility", () => {
++  it("rejects floating-point money and accepts cents serialized as a string", () => {
++    expect(DossierSchema.safeParse({
++      schema_version: "1.0.0",
++      dossier_id: "dossier-money",
++      composed_at: "2026-07-29T00:00:00.000Z",
++      fields: {
++        divida_total: { ...envelopeBase, tipo_valor: "MONETARIO_CENTAVOS", valor: 29163886.44 },
++      },
++    }).success).toBe(false);
++
++    expect(DossierSchema.safeParse({
++      schema_version: "1.0.0",
++      dossier_id: "dossier-money",
++      composed_at: "2026-07-29T00:00:00.000Z",
++      fields: {
++        divida_total: { ...envelopeBase, tipo_valor: "MONETARIO_CENTAVOS", valor: "2916388644" },
++      },
++    }).success).toBe(true);
++  });
++
++  it("keeps non-monetary field values explicitly typed", () => {
++    expect(DossierSchema.safeParse({
++      schema_version: "1.0.0",
++      dossier_id: "dossier-text",
++      composed_at: "2026-07-29T00:00:00.000Z",
++      fields: {
++        situacao: { ...envelopeBase, tipo_valor: "TEXTO", valor: "regular" },
++      },
++    }).success).toBe(true);
++  });
++
+   it("rejects a breaking fixture unless schema_version major changes", () => {
+     const published = DossierSchema.parse({
+       schema_version: "1.0.0",
+       dossier_id: "dossier-1",
+       composed_at: "2026-07-29T00:00:00.000Z",
+       fields: {},
+     });
+ 
++    expect(() => assertSchemaCompatibility(published, {
++      schema_version: "1.1.0",
++      dossier_id: "dossier-1",
++      composed_at: "2026-07-29T00:00:00.000Z",
++      fields: {
++        situacao: { ...envelopeBase, tipo_valor: "TEXTO", valor: "regular" },
++      },
++    })).not.toThrow();
++
+     expect(() => assertSchemaCompatibility(published, {
+       schema_version: "1.1.0",
+       dossier_id: "dossier-1",
+       composed_at: "2026-07-29T00:00:00.000Z",
+     })).toThrow("BREAKING_SCHEMA_CHANGE_REQUIRES_MAJOR_VERSION");
+ 
+     expect(() => assertSchemaCompatibility(published, {
+       schema_version: "2.0.0",
+       dossier_id: "dossier-1",
+       composed_at: "2026-07-29T00:00:00.000Z",
+     })).not.toThrow();
+   });
++
++  it("requires coverage and global confidence for agent-facing classifications", () => {
++    const classification = {
++      schema_version: "1.0.0",
++      classification_id: "classification-1",
++      dossier_id: "dossier-1",
++      policy_version: "2026-07-a",
++      classified_at: "2026-07-29T00:00:00.000Z",
++      category: "TRATAMENTO_LEVE",
++      operational_priority: 3,
++      primary_strategy: "CONTATO_INICIAL",
++      signals: [],
++      explicacao: "Cobertura e confiança permitem tratamento leve.",
++      cobertura: "SUFICIENTE",
++      confianca_global: 0.8,
++    };
++
++    expect(ClassificationSchema.safeParse(classification).success).toBe(true);
++    const withoutRequiredFields: Partial<typeof classification> = { ...classification };
++    delete withoutRequiredFields.cobertura;
++    delete withoutRequiredFields.confianca_global;
++    expect(ClassificationSchema.safeParse(withoutRequiredFields).success).toBe(false);
++  });
+ });

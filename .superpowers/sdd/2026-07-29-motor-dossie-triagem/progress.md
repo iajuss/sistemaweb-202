@@ -65,4 +65,18 @@ Task 3: CLOSED (commits `f10a588..d6e135d`). Closed on Critical findings only, b
 
 Execution mode change (user-directed 2026-07-31; preserve across session restarts): every task from Task 4 onward runs INLINE. No subagent, no separate reviewer, no re-review. The three-agent cycle earned its cost on the security slice and does not pay for importing CSV. TDD with observed RED and verification before declaring anything done continue to apply in full. Stop and ask only if something would require loosening an `AGENTS.md` invariant.
 
+Task 3: full third-review evidence — attack table, mutation tables, findings and the agreed-but-unimplemented resolutions for I-2 and I-5 — is in `task-3-third-review.md`. It existed only in the review conversation until the 2026-07-31 checkpoint.
+
+CHECKPOINT 2026-07-31 (commit `5de3c55`).
+
+Slice in progress: **Task 4 — carteira, importação plugável e quarentena.** Execution mode: inline.
+
+Done in Task 4: the domain layer. `packages/domain/src/wallet.ts` validates one raw spreadsheet row into either an accepted title or a quarantine record, with 10 tests each watched failing first. A quarantine record carries row number and reason and never the CPF, which has its own test, because the import report is read by humans and may be exported. One row yields exactly one reason: first failing field wins. CPF check digits are validated including the repeated-digit case; amounts stay in integer cents through `Money`; February 30th is rejected by comparing the parsed parts back, since `Date.UTC` rolls it into March. `normalizeSpreadsheetMoney` moved from `packages/adapters` into the domain with a re-export left behind, because rejecting a malformed amount is an invariant and the domain cannot import from the adapter layer to reach it.
+
+Missing in Task 4: CSV parser (UTF-8 BOM vs CP1252 detection, `;` vs `,` delimiter), XLSX parser, `packages/application/src/import-wallet.ts` with a non-mutating `preview` and an idempotent `commit` keyed by `id_externo`, encrypted debtor CPF on commit, import audit, file-byte hashing without logging contents, and the fixtures `valid-cp1252-semicolon.csv`, `invalid-cpf.csv`, `titles.xlsx`. Deduplication must key on the external title id and not on CPF — two titles for the same person are two titles. XLSX will need a new dependency; the `node_modules` defect E-1 may recur on install.
+
+Suite at checkpoint: 109 tests, 0 failures, 0 skipped (domain 40, adapters 56, contracts 9, application 4). Lint, typecheck and contract generation exit 0. PostgreSQL/RLS integration ran against the real container.
+
+Open pendencies: `docs/limitacoes-v1.md` holds the full list — P-1 (ADR 021 JWT/JWKS, the only item blocking a real deploy), I-2, I-3, I-4, I-5, five Minors and two environment defects. None is exercisable without an HTTP surface, which arrives in Task 11.
+
 Plan reordered to a thin vertical path (user-directed 2026-07-31): 4 → 8 → 5 → 6 → 7 → 11, then 9 → 10 → 12. The goal is the four features of the brief working narrowly end to end, not two of them complete. Scope reductions: Task 9 becomes documentation, with QSA/RFB and Portal da Transparência as mapped-and-not-integrated sources in `docs/fontes.md` plus an adapter stub, which the brief explicitly authorizes; Task 10 stays on the ADR 009 policy with a partial purge job; Task 12 becomes a minimal UI of two screens, wallet priorities and dossier. Cheap deliverables treated as mandatory: complete `docs/fontes.md`, `docs/lgpd.md` with legal basis per source, `README.md` with one-command reproducible setup, and the small set of hand-checkable test cases.
