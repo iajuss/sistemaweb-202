@@ -9,9 +9,11 @@ import {
 import type { TenantContext, WalletGrant } from "@panella/domain";
 
 import {
+  assertAuthorizedOperation,
   authorizeOperation,
   authorizeWalletCpfLookup,
   readAuthorizedObservation,
+  type AuthorizedOperation,
   type WalletAuthorizationRepository,
 } from "./authorize-actor.js";
 
@@ -207,5 +209,131 @@ describe("readAuthorizedObservation", () => {
       readAuthorizedObservation(identity, "wallet-a", "observation-a", repository, observations),
     ).resolves.toBeNull();
     expect(observationRead).toBe(false);
+  });
+});
+
+/**
+ * ADR 019 and defect I-4. `assertAuthorizedOperation` is the barrier that makes
+ * every capability check downstream meaningful: if an object shaped like an
+ * operation were accepted, every guard that reads `operation.action`,
+ * `operation.principal` or `operation.context` would be reading attacker input.
+ */
+describe("assertAuthorizedOperation", () => {
+  it("refuses an operation the issuer never issued", async () => {
+    const identity = await authenticatedAgent();
+    const forged = {
+      principal: identity.principal,
+      identity,
+      context: { tenantId: "tenant-a", actor: identity.actor },
+      walletId: "wallet-a",
+      action: "READ_DOSSIER",
+    };
+
+    // Every field is correct, and one thing is missing: issuance. The check is
+    // WeakSet membership, not shape, so there is nothing to imitate.
+    expect(() =>
+      assertAuthorizedOperation(forged as unknown as AuthorizedOperation),
+    ).toThrow("AUTHORIZED_OPERATION_REQUIRED");
+  });
+
+  it("accepts the operation the issuer did issue", async () => {
+    const identity = await authenticatedAgent();
+    const repository = new WalletRepositoryFixture(
+      [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER"],
+      }],
+    );
+    const operation = await authorizeOperation(
+      identity,
+      "wallet-a",
+      "READ_DOSSIER",
+      repository,
+    );
+
+    // Without this half the guard could be "throw always" and still pass.
+    expect(() => assertAuthorizedOperation(operation!)).not.toThrow();
+  });
+});
+
+/**
+ * The `containsDebtor` post-filter, listed in defect I-4 as uncovered.
+ *
+ * An observation is a tenant + debtor fact and carries no `walletId` (ADR 020),
+ * so the wallet grant that authorized the read does not by itself say this
+ * debtor belongs to that wallet. Two wallets of one tenant are two clients'
+ * books; answering across them is a leak between clients, not a defence-in-depth
+ * regression.
+ */
+describe("readAuthorizedObservation wallet containment", () => {
+  it("does not answer with an observation whose debtor the wallet does not hold", async () => {
+    const identity = await authenticatedAgent();
+    const repository = new WalletRepositoryFixture(
+      // The wallet exists and grants the read; it just does not hold this
+      // debtor. `debtorIds` deliberately names someone else.
+      [{
+        id: "wallet-a",
+        tenantId: "tenant-a",
+        cpfIndexes: [],
+        debtorIds: ["debtor-b"],
+      }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER"],
+      }],
+    );
+    let observationRead = false;
+    const observations = {
+      find: async () => {
+        observationRead = true;
+        return { debtorId: "debtor-a" };
+      },
+    };
+
+    await expect(
+      readAuthorizedObservation(
+        identity,
+        "wallet-a",
+        "observation-a",
+        repository,
+        observations,
+      ),
+    ).resolves.toBeNull();
+    // The read did happen: this is a post-filter, and the test has to prove it
+    // filters rather than prove the read was skipped for some earlier reason.
+    expect(observationRead).toBe(true);
+  });
+
+  it("answers when the wallet does hold the debtor", async () => {
+    const identity = await authenticatedAgent();
+    const repository = new WalletRepositoryFixture(
+      [{
+        id: "wallet-a",
+        tenantId: "tenant-a",
+        cpfIndexes: [],
+        debtorIds: ["debtor-a"],
+      }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER"],
+      }],
+    );
+
+    await expect(
+      readAuthorizedObservation(
+        identity,
+        "wallet-a",
+        "observation-a",
+        repository,
+        { find: async () => ({ debtorId: "debtor-a" }) },
+      ),
+    ).resolves.toEqual({ debtorId: "debtor-a" });
   });
 });

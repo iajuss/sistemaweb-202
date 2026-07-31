@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Actor } from "./actor.js";
 import {
+  assertTenantContext,
   authorize,
   createTenantContext,
   type AuthorizationAction,
@@ -159,5 +160,40 @@ describe("createTenantContext", () => {
     const unscoped = { ...analyst, tenantId: undefined };
 
     expect(() => createTenantContext(unscoped)).toThrow("TENANT_CONTEXT_REQUIRED");
+  });
+});
+
+/**
+ * ADR 019: a runtime guard needs a test that fails when it is removed. Defect
+ * I-4 listed `INVALID_TENANT_CONTEXT` among six guards that had none.
+ *
+ * The falsifying case is a context whose actor changed **after** the context
+ * was built. `createTenantContext` validates the actor and freezes the context,
+ * but it deliberately keeps the caller's actor reference rather than cloning it
+ * — and freezing a context does not freeze the object it points at. So a
+ * mutable actor can be registered, mutated, and then presented as if it still
+ * agreed with the tenant it was registered under.
+ */
+describe("assertTenantContext", () => {
+  it("refuses a registered context whose actor no longer agrees on the tenant", () => {
+    const mutable: Actor = {
+      ...analyst,
+      tenantId: "tenant-a",
+    };
+    const context = createTenantContext(mutable);
+
+    expect(() => assertTenantContext(context)).not.toThrow();
+
+    (mutable as { tenantId: string }).tenantId = "tenant-b";
+
+    expect(() => assertTenantContext(context)).toThrow("INVALID_TENANT_CONTEXT");
+  });
+
+  it("still refuses a context that was never issued at all", () => {
+    // The other half of the same guard, and the reason the check above is not
+    // enough on its own: registration and agreement are two properties.
+    const forged = { tenantId: "tenant-a", actor: analyst };
+
+    expect(() => assertTenantContext(forged)).toThrow("TENANT_CONTEXT_REQUIRED");
   });
 });

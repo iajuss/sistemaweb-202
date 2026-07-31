@@ -409,3 +409,61 @@ describe("tenant-scoped repository", () => {
     ).rejects.toThrow("OPERATION_ACTION_FORBIDDEN");
   });
 });
+
+/**
+ * ADR 019 and defect I-4: each guard below existed and worked, and none of them
+ * had a test that failed when it was removed. A guard nobody can knock down is
+ * a false guarantee, which is the same defect class as a lint rule with no
+ * target (M-1).
+ *
+ * Every case here uses **genuine** principals and operations, issued through
+ * `authorizeOperation`. Forging one is already refused earlier by
+ * `assertVerifiedPrincipal` and `assertAuthorizedOperation`, so a forged input
+ * would exercise the wrong guard and pass for the wrong reason.
+ */
+describe("operation guards, each falsifiable on its own", () => {
+  it("refuses an operation issued to a different principal", async () => {
+    const repository = new InMemoryTenantScopedRepository<ObservationFixture>();
+    const mine = await authorizedOperation({
+      tenantId: "tenant-a",
+      walletId: "wallet-a",
+      kind: "AGENT",
+      action: "READ_DOSSIER",
+    });
+    const theirs = await authorizedOperation({
+      tenantId: "tenant-a",
+      walletId: "wallet-a",
+      kind: "AGENT",
+      action: "READ_DOSSIER",
+    });
+
+    // Same tenant, same wallet, same action, both genuine: the only thing
+    // wrong is that the capability was not issued to the principal presenting
+    // it. Without this guard a caller could borrow someone else's capability.
+    await expect(
+      repository.find(mine.principal, theirs.operation, "observation-a"),
+    ).rejects.toThrow("OPERATION_PRINCIPAL_MISMATCH");
+  });
+
+  it("refuses source ingestion to an actor that is not a system worker", async () => {
+    const repository = new InMemoryTenantScopedRepository<ObservationFixture>();
+    const agent = await authorizedOperation({
+      tenantId: "tenant-a",
+      walletId: "wallet-a",
+      kind: "AGENT",
+      action: "RUN_SOURCE",
+    });
+
+    // The grant really does carry RUN_SOURCE, so wallet authorization is
+    // satisfied and the action check passes. Ingestion is still refused: it
+    // writes raw source facts, and that capability belongs to a system worker
+    // rather than to any agent holding a wallet grant (ADR 017).
+    await expect(
+      repository.save(agent.principal, agent.operation, {
+        id: "observation-a",
+        tenantId: "tenant-a",
+        source: "PGFN_DADOS_ABERTOS",
+      }),
+    ).rejects.toThrow("SYSTEM_INGESTION_CAPABILITY_REQUIRED");
+  });
+});

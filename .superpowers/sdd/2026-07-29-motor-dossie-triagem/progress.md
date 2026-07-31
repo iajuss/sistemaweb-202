@@ -1455,3 +1455,81 @@ descrição do motivo, que estava desatualizada.
 
 Próxima ação: **verificar a `main` depois do merge**, a partir de clone novo em
 diretório temporário, seguindo o README à risca.
+
+---
+
+## Verificação da `main` e I-4
+
+Suíte: **534 unitários** (era 526) e 13 de integração, 0 falhas. `lint`,
+`typecheck` e `generate:contracts` saem 0, sem deriva.
+
+### `main` verificada de clone limpo, volume vazio
+
+`docker compose down -v` com autorização, `docker volume ls` vazio depois.
+Clone novo de `main` (`e515435`) em diretório temporário, README seguido à
+risca, sem improvisar passo nenhum. Passos 1 a 9 conferidos um a um: install,
+`prisma generate` (v6.19.0), Compose `Healthy` nos dois containers, **as duas
+migrações aplicadas** — banco genuinamente novo —, `pnpm demo` com 3 devedores
+e 0 em quarentena, os três endpoints em 200 e as duas telas renderizando **em
+navegador de verdade**, não só em `curl`. `test:unit` 526, `test:integration`
+13, lint e typecheck em 0. A demonstração no ar publica `política: 2026-07-B`.
+
+Dois defeitos, ambos do documento e não do sistema:
+
+1. **As telas eram inacháveis.** O README citava só o primeiro terço da saída do
+   `pnpm demo`, cortando justamente o bloco que imprime os endpoints e as URLs
+   das duas telas; e as URLs só apareciam no passo 9, depois de três seções de
+   `curl`. Agora a saída é citada inteira, há uma tabela de atalho no topo e o
+   passo 5 manda parar e abrir o navegador para quem só quer ver.
+2. **`generate:contracts` acusava deriva falsa em clone novo no Windows.**
+   `git status` marcava os dois JSON gerados como modificados logo depois de
+   regenerar. `git diff --exit-code` devolvia 0 o tempo todo: o conteúdo nunca
+   mudou. Causa: `core.autocrlf` faz checkout em CRLF, o gerador escreve LF.
+   `packages/contracts/generated/** text eol=lf` no `.gitattributes` resolve.
+   Acusar deriva fantasma justamente nos dois arquivos cujo diff deveria
+   significar "o contrato mudou" é pior que não acusar nada.
+
+A contagem de 526 testes no README já estava correta na `main` — a correção
+entrou junto no merge.
+
+### I-4: cinco guardas e o pós-filtro fechados, duas restam
+
+**Cada mutação derruba exatamente um teste nomeado**, sobre uma suíte de 534.
+RED observado por mutação antes de cada guarda ser considerada coberta.
+
+| Guarda removida | Testes que falham |
+|---|---|
+| `AUTHORIZED_OPERATION_REQUIRED` | 1 |
+| `OPERATION_PRINCIPAL_MISMATCH` | 1 |
+| `SYSTEM_INGESTION_CAPABILITY_REQUIRED` | 1 |
+| `INVALID_TENANT_CONTEXT` | 1 |
+| pós-filtro `containsDebtor` | 1 |
+| `OPERATION_CONTEXT_IDENTITY_MISMATCH` | **0** |
+| `AUTHORIZED_WALLET_CONTEXT_REQUIRED` | **0** |
+
+**As duas que restam não estão quebradas — são vazias por construção**, e isso
+foi estabelecido lendo os caminhos de chamada, não supondo:
+
+- `issueAuthorizedOperation` é o **único** emissor de `AuthorizedOperation`, e
+  monta a operação com a mesma `identity` e com `createTenantContext(identity.actor)`.
+  `context.actor` e `identity.actor` são a mesma referência, sempre; e só objeto
+  registrado no `WeakSet` do emissor passa pela barreira anterior. Logo
+  `OPERATION_CONTEXT_IDENTITY_MISMATCH` não tem entrada que a faça disparar.
+- `assertAuthorizedWalletContext` é privada de módulo, tem **um** chamador, e
+  recebe um contexto criado na linha imediatamente acima.
+- Conferido que isso não esconde furo: `authorize()` tem um único ponto de
+  chamada e decide sobre `runtimeActor`, nunca sobre `context.actor`; e
+  `context.actor` só alimenta validação de tenant e o `actorId` da auditoria.
+
+Escrever "teste" para condição que o código não consegue produzir seria fabricar
+a prova — o defeito que o próprio I-4 nomeia. Fica como decisão de desenho:
+apagar a guarda vazia, ou mover a fronteira para que um valor de fora chegue até
+ela. **Não decidi sozinho.**
+
+Um detalhe que vale registro: `INVALID_TENANT_CONTEXT` só é alcançável porque
+`createTenantContext` guarda a referência do ator do chamador em vez de cloná-la
+e está exportada no barrel do domínio — ou seja, o teste que fecha essa guarda
+depende do defeito M-3 continuar aberto. Fechar M-3 exige reescrever esse teste.
+
+Pendências intocadas, por instrução: I-2, M-1, M-3, P-1 e C-1. Descrições
+reconferidas contra o sistema depois do merge e continuam válidas.
