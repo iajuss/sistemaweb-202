@@ -71,7 +71,7 @@ publicou aquele dado, mas ninguém estabeleceu que é desta pessoa.
 - categoria: **COBRANCA_INTENSIVA**
 - estratégia primária: **CONTATO_DIRETO_PRIORITARIO**
 - prioridade operacional: 0
-- política: 2026-07-A
+- política: 2026-07-B
 - pontuação: 1
 - confiança global: 1
 

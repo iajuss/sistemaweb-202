@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluatePolicy, POLICY_2026_07_A } from "@panella/domain";
+import { evaluatePolicy, POLICY_2026_07_B } from "@panella/domain";
 
 import { dossierFrom } from "../../../fixtures/policy/dossiers.js";
 import { renderPrompt, PROMPT_VERSION } from "./prompt.js";
@@ -22,7 +22,7 @@ const CONFIRMADO = {
 
 function render(spec: Parameters<typeof dossierFrom>[0]) {
   const dossier = dossierFrom(spec);
-  return renderPrompt(dossier, evaluatePolicy(dossier, POLICY_2026_07_A));
+  return renderPrompt(dossier, evaluatePolicy(dossier, POLICY_2026_07_B));
 }
 
 describe("determinism", () => {
@@ -151,6 +151,9 @@ describe("what the agent needs to act", () => {
   it("carries the policy and resolver versions behind the answer", () => {
     const text = render(CONFIRMADO);
 
-    expect(text).toContain("2026-07-A");
+    // Two versions, two assertions. One substring cannot claim to check both,
+    // and after the policy bump they no longer share a label.
+    expect(text).toContain("política: 2026-07-B");
+    expect(text).toContain("versão do resolvedor: 2026-07-A");
   });
 });

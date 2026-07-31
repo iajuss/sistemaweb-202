@@ -24,7 +24,7 @@ pnpm test:unit
 
 ## Pontuações calculadas à mão
 
-Pesos da política `2026-07-A`: `divida_ativa_confirmada` 0,40;
+Pesos da política `2026-07-B`: `divida_ativa_confirmada` 0,40;
 `presenca_na_lista_de_devedores` 0,25; `valor_elevado_em_aberto` 0,20;
 `tres_ou_mais_titulos_em_aberto` 0,15; `pgfn_regularidade_indiciada_por_delta`
 −0,30; `vinculo_societario_qsa_contextual` 0,00. Faixas: `COBRANCA_INTENSIVA`

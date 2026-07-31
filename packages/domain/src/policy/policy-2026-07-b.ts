@@ -8,10 +8,16 @@ import {
 import type { PolicyDefinition, SignalDefinition } from "./types.js";
 
 /**
- * Policy `2026-07-A`. Weights live here, declared and versioned, never as `if`
+ * Policy `2026-07-B`. Weights live here, declared and versioned, never as `if`
  * statements scattered through the engine — a weight nobody can point at is a
  * weight nobody can review, and the right to review an automated decision is a
  * legal requirement rather than a feature.
+ *
+ * **`2026-07-A` is gone, and no declared weight or threshold moved.** The
+ * version identifies behaviour, not intent (ADR 025): under `2026-07-A` the
+ * mitigating delta could never fire, and the recurrence signal published a
+ * different name. Two runs both labelled `2026-07-A` would therefore disagree,
+ * so the label had to change even though the table below did not.
  */
 
 const VALOR_ELEVADO_CENTAVOS = 5_000_000n;
@@ -146,8 +152,8 @@ const SIGNALS: readonly SignalDefinition[] = [
     },
 ];
 
-export const POLICY_2026_07_A: PolicyDefinition = Object.freeze({
-  version: "2026-07-A",
+export const POLICY_2026_07_B: PolicyDefinition = Object.freeze({
+  version: "2026-07-B",
   valorElevadoCentavos: VALOR_ELEVADO_CENTAVOS,
   minimoDeTitulos: MINIMO_DE_TITULOS,
   thresholds: Object.freeze({ intensiva: 0.7, padrao: 0.3 }),

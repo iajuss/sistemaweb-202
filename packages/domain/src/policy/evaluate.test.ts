@@ -6,19 +6,20 @@ import {
 } from "../../../../fixtures/policy/dossiers.js";
 
 import { evaluatePolicy } from "./evaluate.js";
-import { POLICY_2026_07_A } from "./policy-2026-07-a.js";
+import { POLICY_2026_07_B } from "./policy-2026-07-b.js";
 
 /**
  * Every expectation below was calculated by hand before the evaluator existed.
  *
- * Weights of policy `2026-07-A`:
+ * Weights of policy `2026-07-B`, unchanged from `2026-07-A` — only the label
+ * moved, and ADR 025 says why:
  *
  * | sinal                                 | peso  | sentido     |
  * |---------------------------------------|-------|-------------|
  * | divida_ativa_confirmada               |  0.40 | AGRAVANTE   |
  * | presenca_na_lista_de_devedores        |  0.25 | AGRAVANTE   |
  * | valor_elevado_em_aberto               |  0.20 | AGRAVANTE   |
- * | multiplos_titulos_em_aberto           |  0.15 | AGRAVANTE   |
+ * | tres_ou_mais_titulos_em_aberto        |  0.15 | AGRAVANTE   |
  * | pgfn_regularidade_indiciada_por_delta | -0.30 | MITIGADOR   |
  * | vinculo_societario_qsa_contextual     |  0.00 | CONTEXTUAL  |
  *
@@ -59,7 +60,7 @@ const COM_DELTA: DossierSpec = {
 };
 
 function evaluate(spec: DossierSpec) {
-  return evaluatePolicy(dossierFrom(spec), POLICY_2026_07_A);
+  return evaluatePolicy(dossierFrom(spec), POLICY_2026_07_B);
 }
 
 function contribution(
@@ -111,7 +112,7 @@ describe("hand-calculated cases", () => {
     const result = evaluate(UM_SINAL);
 
     expect(result.signals.map((entry) => entry.nome).sort()).toEqual(
-      POLICY_2026_07_A.signals.map((entry) => entry.nome).sort(),
+      POLICY_2026_07_B.signals.map((entry) => entry.nome).sort(),
     );
   });
 });
@@ -335,10 +336,10 @@ describe("the recurrence signal is named after the rule it applies", () => {
   });
 
   it("promises no threshold the policy does not apply", () => {
-    expect(POLICY_2026_07_A.signals.map((signal) => signal.nome)).not.toContain(
+    expect(POLICY_2026_07_B.signals.map((signal) => signal.nome)).not.toContain(
       "multiplos_titulos_em_aberto",
     );
-    expect(POLICY_2026_07_A.minimoDeTitulos).toBe(3);
+    expect(POLICY_2026_07_B.minimoDeTitulos).toBe(3);
   });
 });
 
@@ -379,7 +380,7 @@ describe("the classification explains itself", () => {
   it("carries the policy version and the dossier it judged", () => {
     const result = evaluate(CASA_CHEIA);
 
-    expect(result.policy_version).toBe("2026-07-A");
+    expect(result.policy_version).toBe("2026-07-B");
     expect(result.dossier_id).toBe("dossier-1");
   });
 
@@ -391,5 +392,67 @@ describe("the classification explains itself", () => {
       ...second,
       classification_id: null,
     });
+  });
+});
+
+/**
+ * ADR 025. A policy version identifies **behaviour**, not intent. Before the
+ * delta correction the mitigating signal could never fire, and the recurrence
+ * signal answered to another name in the published output; two runs both
+ * labelled `2026-07-A` would therefore disagree, which is the same false
+ * guarantee this project removed everywhere else.
+ *
+ * The declared weights and thresholds did not move, and the table below is what
+ * says so — it is the same table this file's header carries, asserted rather
+ * than described.
+ */
+describe("the policy version identifies the behaviour that ships", () => {
+  it("is 2026-07-B, and every classification says so", () => {
+    expect(POLICY_2026_07_B.version).toBe("2026-07-B");
+    expect(evaluate(CASA_CHEIA).policy_version).toBe("2026-07-B");
+  });
+
+  it("kept every declared weight and threshold of 2026-07-A", () => {
+    expect(
+      Object.fromEntries(
+        POLICY_2026_07_B.signals.map((signal) => [signal.nome, signal.peso]),
+      ),
+    ).toEqual({
+      divida_ativa_confirmada: 0.4,
+      presenca_na_lista_de_devedores: 0.25,
+      valor_elevado_em_aberto: 0.2,
+      tres_ou_mais_titulos_em_aberto: 0.15,
+      pgfn_regularidade_indiciada_por_delta: -0.3,
+      vinculo_societario_qsa_contextual: 0,
+    });
+    expect(POLICY_2026_07_B.thresholds).toEqual({
+      intensiva: 0.7,
+      padrao: 0.3,
+    });
+    expect(POLICY_2026_07_B.minimoDeTitulos).toBe(3);
+    expect(POLICY_2026_07_B.valorElevadoCentavos).toBe(5_000_000n);
+  });
+});
+
+/**
+ * `confianca_global` collapses to 0 whenever the delta applies: the signal
+ * declares a dependency on `pgfn_lista_presente`, and an unresolved or refused
+ * link carries confidence 0, so the weakest link is 0. That reading is a
+ * recorded pendency and is deliberately left alone here.
+ *
+ * What this pins is the containment: the zero cannot leak sideways. The
+ * coverage verdict is decided during composition, before any classification
+ * exists, and `confianca_global` is written once at the end of the evaluation
+ * and read by nothing that decides anything.
+ */
+describe("confianca_global is an output, never an input", () => {
+  it("does not drag the coverage verdict or the category down with it", () => {
+    const result = evaluate(COM_DELTA);
+
+    expect(result.confianca_global).toBe(0);
+    expect(dossierFrom(COM_DELTA).cobertura.veredito).toBe("SUFICIENTE");
+    expect(result.cobertura).toBe("SUFICIENTE");
+    expect(result.category).toBe("COBRANCA_PADRAO");
+    expect(result.explicacao).not.toContain("Cobertura insuficiente");
   });
 });

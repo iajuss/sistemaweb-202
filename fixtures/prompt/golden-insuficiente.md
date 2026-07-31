@@ -71,7 +71,7 @@ publicou aquele dado, mas ninguém estabeleceu que é desta pessoa.
 - categoria: **DADOS_INSUFICIENTES**
 - estratégia primária: **COLETAR_MAIS_DADOS**
 - prioridade operacional: 3
-- política: 2026-07-A
+- política: 2026-07-B
 - pontuação: 0.35
 - confiança global: 0.4
 

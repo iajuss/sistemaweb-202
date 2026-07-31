@@ -1293,3 +1293,78 @@ tema sem padrão, e visão como função da ação autorizada.
 segue valendo — ator `HUMAN` é autorizado por papel e alcança toda carteira do
 tenant —, e a UI não a exercita porque o único ator construído fora de teste
 continua sendo um agente com concessão por carteira.
+
+---
+
+## Bump de versão de política: `2026-07-A` → `2026-07-B` (ADR 025)
+
+Suíte: **526 unitários** (era 523) e 13 de integração, 0 falhas. `lint`,
+`typecheck` e `generate:contracts` saem 0, sem deriva de artefato regenerado.
+
+**Item 1 da revisão foi revertido por decisão sua.** A sessão anterior manteve
+`2026-07-A` argumentando que pesos, faixas e limiares declarados não se mexeram.
+O argumento trata a versão como declaração de intenção; quem consome o contrato
+lê comportamento. Antes da correção do delta o sinal mitigador **não podia
+disparar em execução nenhuma**, e um sinal mudou de nome na saída publicada —
+duas execuções rotuladas `2026-07-A` devolveriam resultados diferentes, que é a
+mesma garantia falsa removida em todo o resto do projeto.
+
+`ADR 025` registra o gatilho como regra: mudança que altere o resultado de
+alguma execução possível, ou o nome de um sinal publicado, exige bump mesmo com
+a tabela intacta. Uma linha nova nos invariantes do `AGENTS.md` aponta para lá.
+
+`2026-07-A` **deixa de existir no código**: o arquivo virou
+`policy-2026-07-b.ts`, a constante virou `POLICY_2026_07_B` e não há caminho que
+produza o rótulo antigo. A versão anterior não foi reconstruída como política
+histórica — exigiria manter em código o delta inalcançável e a chave de escopo
+morta, e comparar contra um defeito reconstruído não informa nada (ADR 016 pede
+versões comparáveis, não versões defeituosas preservadas).
+
+`plano de fontes` e `versão do resolvedor` continuam em `2026-07-A`: são versões
+independentes que só coincidiam de etiqueta, e nenhuma das duas mudou de
+comportamento. Os dois goldens de prompt acompanham só a linha da política.
+
+RED observado antes: `expected '2026-07-A' to be '2026-07-B'`, um teste só.
+
+O teste que afirma que os pesos não se mexeram lista a tabela item a item, em
+vez de descrevê-la em prosa — a frase "nenhum peso mudou" precisa ser
+falsificável para valer alguma coisa.
+
+| Mutação | Testes que falham |
+|---|---|
+| `version` volta para `2026-07-A` | 6 (versão, comparação, os dois goldens, prompt, explicação) |
+| `divida_ativa_confirmada` de 0,40 para 0,45 | 6 (tabela de pesos, três do delta, os dois goldens) |
+
+Um defeito de teste corrigido de passagem: `prompt.test.ts` afirmava carregar
+"a versão da política **e** a do resolvedor" com um único `toContain("2026-07-A")`.
+Uma substring não consegue checar duas coisas; enquanto os rótulos coincidiam o
+teste passava sem exercitar nada. Agora são duas asserções ancoradas no rótulo
+de cada linha.
+
+### Checagem pedida: `confianca_global` não cascateia (não corrigida, por instrução)
+
+**Não cascateia.** Confirmado por leitura e por teste executável, e nada foi
+mexido.
+
+- `cobertura.veredito` é decidido em `composeDossier`, na composição do dossiê,
+  **antes de a classificação existir**, e depende só de
+  `fontesObrigatoriasInconclusivas.length === 0`. Nenhuma confiança de vínculo
+  entra na conta.
+- `confianca_global` é calculada na última linha de `evaluatePolicy` e escrita
+  uma vez no resultado congelado. `categoryFor`, o curto-circuito de
+  `DADOS_INSUFICIENTES`, o cap do delta, a estratégia e a explicação são todos
+  calculados **antes** dela e nenhum a lê.
+- Fora do domínio ela só é copiada (`classification-mapper.ts`), validada
+  (`classification-schema.ts`) e impressa (`prompt.ts`). Nenhum consumidor
+  decide nada com ela.
+
+Teste de fixação em `evaluate.test.ts` ("confianca_global is an output, never an
+input"): sobre o dossiê `COM_DELTA`, `confianca_global` é 0, o veredito de
+cobertura do dossiê é `SUFICIENTE`, a classificação sai `SUFICIENTE` /
+`COBRANCA_PADRAO`, e a explicação não menciona cobertura insuficiente. Nasceu
+verde de propósito — é prova de contenção, não correção.
+
+**A pendência em si continua aberta e não foi tocada:** `confianca_global` cai a
+zero quando o delta se aplica, porque o elo mais fraco lê a confiança de um
+vínculo recusado como 0, e recusa é resposta, não incerteza. O efeito é local ao
+próprio campo publicado.

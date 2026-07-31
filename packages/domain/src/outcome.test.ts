@@ -11,7 +11,7 @@ import { recordOutcome, type CollectionOutcome } from "./outcome.js";
 
 const BASE: CollectionOutcome = {
   outcomeId: "outcome-1",
-  classificationId: "dossier-1|2026-07-A",
+  classificationId: "dossier-1|2026-07-B",
   tenantId: "tenant-a",
   tipo: "PAGAMENTO",
   actorId: "agent-a",

@@ -1,6 +1,6 @@
 import type { DossierSnapshot } from "../dossier.js";
 
-import { regularidadeIndiciadaPorDelta } from "./policy-2026-07-a.js";
+import { regularidadeIndiciadaPorDelta } from "./policy-2026-07-b.js";
 import type {
   AppliedSignal,
   PolicyCategory,

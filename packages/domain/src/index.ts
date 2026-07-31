@@ -113,7 +113,7 @@ export {
   orderByPriority,
 } from "./policy/evaluate.js";
 export type { PolicyComparison } from "./policy/evaluate.js";
-export { POLICY_2026_07_A } from "./policy/policy-2026-07-a.js";
+export { POLICY_2026_07_B } from "./policy/policy-2026-07-b.js";
 export type {
   AppliedSignal,
   PolicyCategory,

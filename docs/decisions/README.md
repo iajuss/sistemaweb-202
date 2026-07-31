@@ -33,6 +33,7 @@ consequências mora aqui.
 | [022](022-leitor-xlsx-sem-dependencia-externa.md) | Leitor XLSX próprio, sem dependência externa |
 | [023](023-precisao-excedente-em-valor-publicado.md) | Precisão excedente: carteira quarentena, fonte publicada arredonda com rastro |
 | [024](024-ui-servida-pelo-mesmo-roteador-sem-framework.md) | UI no mesmo roteador, sem framework; audiência derivada da concessão |
+| [025](025-versao-de-politica-identifica-comportamento.md) | Versão de política identifica comportamento, não intenção |
 
 ## Escrevendo um ADR novo
 

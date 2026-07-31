@@ -6,7 +6,7 @@ import {
 } from "../../../../fixtures/policy/dossiers.js";
 
 import { evaluatePolicy } from "./evaluate.js";
-import { POLICY_2026_07_A } from "./policy-2026-07-a.js";
+import { POLICY_2026_07_B } from "./policy-2026-07-b.js";
 import type { PolicyDefinition } from "./types.js";
 
 /**
@@ -58,8 +58,8 @@ function withPerturbedWeight(
   factor: number,
 ): PolicyDefinition {
   return {
-    ...POLICY_2026_07_A,
-    signals: POLICY_2026_07_A.signals.map((signal) =>
+    ...POLICY_2026_07_B,
+    signals: POLICY_2026_07_B.signals.map((signal) =>
       signal.nome === nome ? { ...signal, peso: signal.peso * factor } : signal,
     ),
   };
@@ -71,14 +71,14 @@ const PERTURBATIONS = [
 ] as const;
 
 describe("each weight perturbed by ±20%, one at a time", () => {
-  for (const signal of POLICY_2026_07_A.signals) {
+  for (const signal of POLICY_2026_07_B.signals) {
     for (const [label, factor] of PERTURBATIONS) {
       it(`keeps every category with ${signal.nome} at ${label}`, () => {
         const perturbed = withPerturbedWeight(signal.nome, factor);
 
         for (const [nome, spec] of Object.entries(CASOS)) {
           const dossier = dossierFrom(spec);
-          const baseline = evaluatePolicy(dossier, POLICY_2026_07_A);
+          const baseline = evaluatePolicy(dossier, POLICY_2026_07_B);
           const shifted = evaluatePolicy(dossier, perturbed);
 
           expect(
@@ -94,7 +94,7 @@ describe("each weight perturbed by ±20%, one at a time", () => {
 describe("what the perturbation may and may not move", () => {
   it("moves the score, so the test is not passing on a frozen number", () => {
     const dossier = dossierFrom(CASOS.so_carteira);
-    const baseline = evaluatePolicy(dossier, POLICY_2026_07_A);
+    const baseline = evaluatePolicy(dossier, POLICY_2026_07_B);
     const shifted = evaluatePolicy(
       dossier,
       withPerturbedWeight("valor_elevado_em_aberto", 0.8),
@@ -110,7 +110,7 @@ describe("what the perturbation may and may not move", () => {
   it("cannot rescue insufficient coverage at any weight", () => {
     const dossier = dossierFrom(CASOS.cobertura_falha);
 
-    for (const signal of POLICY_2026_07_A.signals) {
+    for (const signal of POLICY_2026_07_B.signals) {
       for (const factor of [0, 0.8, 1.2, 5]) {
         expect(
           evaluatePolicy(dossier, withPerturbedWeight(signal.nome, factor))

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 import {
   evaluatePolicy,
-  POLICY_2026_07_A,
+  POLICY_2026_07_B,
   sourcePlanForUfs,
   type DossierSnapshot,
   type RawObservation,
@@ -356,7 +356,7 @@ export async function seedDemo(): Promise<DemoRuntime> {
       newDossierId: () => dossierId,
     });
 
-    const classification = evaluatePolicy(snapshot, POLICY_2026_07_A);
+    const classification = evaluatePolicy(snapshot, POLICY_2026_07_B);
     const wallet = byDebtor.get(candidate.debtorId);
     priorities.push({
       dossierId,

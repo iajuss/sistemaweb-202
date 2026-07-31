@@ -6,7 +6,7 @@ import {
 } from "../../../../fixtures/policy/dossiers.js";
 
 import { comparePolicies, evaluatePolicy, orderByPriority } from "./evaluate.js";
-import { POLICY_2026_07_A } from "./policy-2026-07-a.js";
+import { POLICY_2026_07_B } from "./policy-2026-07-b.js";
 import type { PolicyDefinition } from "./types.js";
 
 /**
@@ -69,7 +69,7 @@ const CARTEIRA_SINTETICA: readonly DossierSpec[] = [
 
 function classify() {
   return CARTEIRA_SINTETICA.map((spec) =>
-    evaluatePolicy(dossierFrom(spec), POLICY_2026_07_A),
+    evaluatePolicy(dossierFrom(spec), POLICY_2026_07_B),
   );
 }
 
@@ -131,7 +131,7 @@ describe("ordering a finite team's day", () => {
 
 describe("comparing two policy versions", () => {
   const MAIS_SEVERA: PolicyDefinition = {
-    ...POLICY_2026_07_A,
+    ...POLICY_2026_07_B,
     version: "2026-08-EXPERIMENTAL",
     thresholds: { intensiva: 0.3, padrao: 0.1 },
   };
@@ -140,19 +140,19 @@ describe("comparing two policy versions", () => {
     const dossiers = CARTEIRA_SINTETICA.map((spec) => dossierFrom(spec));
     const comparison = comparePolicies(
       dossiers,
-      POLICY_2026_07_A,
+      POLICY_2026_07_B,
       MAIS_SEVERA,
     );
 
     expect(comparison).toHaveLength(dossiers.length);
     for (const entry of comparison) {
-      expect(entry.left.policy_version).toBe("2026-07-A");
+      expect(entry.left.policy_version).toBe("2026-07-B");
       expect(entry.right.policy_version).toBe("2026-08-EXPERIMENTAL");
     }
     // Re-running the original after the comparison yields the same answers:
     // a new version is compared, never applied in place.
     expect(
-      dossiers.map((dossier) => evaluatePolicy(dossier, POLICY_2026_07_A)),
+      dossiers.map((dossier) => evaluatePolicy(dossier, POLICY_2026_07_B)),
     ).toEqual(comparison.map((entry) => entry.left));
   });
 
@@ -160,7 +160,7 @@ describe("comparing two policy versions", () => {
     const dossiers = CARTEIRA_SINTETICA.map((spec) => dossierFrom(spec));
     const changed = comparePolicies(
       dossiers,
-      POLICY_2026_07_A,
+      POLICY_2026_07_B,
       MAIS_SEVERA,
     ).filter((entry) => entry.categoryChanged);
 
@@ -173,7 +173,7 @@ describe("comparing two policy versions", () => {
   it("leaves insufficient coverage insufficient under any thresholds", () => {
     const dossier = dossierFrom(CARTEIRA_SINTETICA[6]);
 
-    for (const entry of comparePolicies([dossier], POLICY_2026_07_A, MAIS_SEVERA)) {
+    for (const entry of comparePolicies([dossier], POLICY_2026_07_B, MAIS_SEVERA)) {
       expect(entry.left.category).toBe("DADOS_INSUFICIENTES");
       expect(entry.right.category).toBe("DADOS_INSUFICIENTES");
       expect(entry.categoryChanged).toBe(false);

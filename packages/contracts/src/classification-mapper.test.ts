@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluatePolicy,
-  POLICY_2026_07_A,
+  POLICY_2026_07_B,
   type DossierSnapshot,
 } from "@panella/domain";
 
@@ -21,7 +21,7 @@ const CLASSIFIED_AT = "2026-07-31T13:00:00.000Z";
 
 function contractFor(dossier: DossierSnapshot) {
   return toClassificationContract(
-    evaluatePolicy(dossier, POLICY_2026_07_A),
+    evaluatePolicy(dossier, POLICY_2026_07_B),
     CLASSIFIED_AT,
   );
 }
@@ -68,7 +68,7 @@ describe("projecting a classification onto the published contract", () => {
 
     // The right of review over an automated decision is why this is required
     // rather than optional: a category with no decomposition is unreviewable.
-    expect(contract.signals).toHaveLength(POLICY_2026_07_A.signals.length);
+    expect(contract.signals).toHaveLength(POLICY_2026_07_B.signals.length);
     for (const signal of contract.signals) {
       expect(signal.nome.length).toBeGreaterThan(0);
       expect(signal.fonte.length).toBeGreaterThan(0);
@@ -97,7 +97,7 @@ describe("projecting a classification onto the published contract", () => {
         dadosAbertos: { status: "NAO_ENCONTRADO" },
         lista: { status: "NAO_ENCONTRADO" },
       }),
-      POLICY_2026_07_A,
+      POLICY_2026_07_B,
     );
 
     expect(() =>

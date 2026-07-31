@@ -1,6 +1,6 @@
 import {
   evaluatePolicy,
-  POLICY_2026_07_A,
+  POLICY_2026_07_B,
   type DossierSnapshot,
   type PolicyCategory,
   type PolicyClassification,
@@ -109,7 +109,7 @@ export async function lookupDossier(
 
   return Object.freeze({
     dossier,
-    classification: evaluatePolicy(dossier, input.policy ?? POLICY_2026_07_A),
+    classification: evaluatePolicy(dossier, input.policy ?? POLICY_2026_07_B),
   });
 }
 

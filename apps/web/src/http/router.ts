@@ -1,7 +1,7 @@
 import {
   assertDossierFactDiscipline,
   evaluatePolicy,
-  POLICY_2026_07_A,
+  POLICY_2026_07_B,
   type AuthorizationAction,
   type DossierSnapshot,
   type SourcePlan,
@@ -317,7 +317,7 @@ export function createRouter(
     return {
       status: 200,
       contentType: "text/markdown; charset=utf-8",
-      body: renderPrompt(snapshot, evaluatePolicy(snapshot, POLICY_2026_07_A)),
+      body: renderPrompt(snapshot, evaluatePolicy(snapshot, POLICY_2026_07_B)),
     };
   }
 
@@ -436,7 +436,7 @@ export function createRouter(
     const view = projectDossierForRole({
       papel,
       dossier: snapshot,
-      classificacao: evaluatePolicy(snapshot, POLICY_2026_07_A),
+      classificacao: evaluatePolicy(snapshot, POLICY_2026_07_B),
       devedor: { nome },
     });
 

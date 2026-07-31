@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluatePolicy,
-  POLICY_2026_07_A,
+  POLICY_2026_07_B,
   type HumanRole,
 } from "@panella/domain";
 
@@ -46,7 +46,7 @@ function view(papel: HumanRole, spec: DossierSpec = CONFIRMADO) {
   return projectDossierForRole({
     papel,
     dossier,
-    classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+    classificacao: evaluatePolicy(dossier, POLICY_2026_07_B),
     devedor: DEVEDOR,
     trilha: TRILHA,
   });
@@ -85,7 +85,7 @@ describe("no role ever receives the document", () => {
       projectDossierForRole({
         papel: "OPERADOR_COBRANCA",
         dossier,
-        classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+        classificacao: evaluatePolicy(dossier, POLICY_2026_07_B),
         devedor: { nome: `JOSE SILVA ${CPF_PONTUADO}`, cpf: DEVEDOR.cpf },
       }),
     ).toThrow("DOCUMENTO_EM_VISAO_DE_PAPEL");
@@ -98,7 +98,7 @@ describe("no role ever receives the document", () => {
       projectDossierForRole({
         papel: "ANALISTA_DOSSIE",
         dossier,
-        classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+        classificacao: evaluatePolicy(dossier, POLICY_2026_07_B),
         devedor: { nome: `JOSE SILVA ${DEVEDOR.cpf}`, cpf: DEVEDOR.cpf },
       }),
     ).toThrow("DOCUMENTO_EM_VISAO_DE_PAPEL");
@@ -118,7 +118,7 @@ describe("a caller that never held the document", () => {
     const view = projectDossierForRole({
       papel: "OPERADOR_COBRANCA",
       dossier,
-      classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+      classificacao: evaluatePolicy(dossier, POLICY_2026_07_B),
       devedor: { nome: DEVEDOR.nome },
     });
 
@@ -133,7 +133,7 @@ describe("a caller that never held the document", () => {
       projectDossierForRole({
         papel: "OPERADOR_COBRANCA",
         dossier,
-        classificacao: evaluatePolicy(dossier, POLICY_2026_07_A),
+        classificacao: evaluatePolicy(dossier, POLICY_2026_07_B),
         devedor: { nome: `JOSE SILVA ${CPF_PONTUADO}` },
       }),
     ).toThrow("DOCUMENTO_EM_VISAO_DE_PAPEL");
