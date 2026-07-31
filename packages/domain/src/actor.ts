@@ -21,6 +21,7 @@ export const AuthorizationActionSchema = z.enum([
   "READ_AUDIT",
   "MANAGE_GRANTS",
   "RUN_SOURCE",
+  "IMPORT_WALLET",
 ]);
 
 export const WalletGrantSchema = z

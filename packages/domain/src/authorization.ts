@@ -27,7 +27,7 @@ export interface AuthorizationDecision {
 const HUMAN_PERMISSIONS: Readonly<
   Record<HumanRole, readonly AuthorizationAction[]>
 > = {
-  ADMIN_TENANT: ["MANAGE_GRANTS"],
+  ADMIN_TENANT: ["MANAGE_GRANTS", "IMPORT_WALLET"],
   ANALISTA_DOSSIE: ["READ_DOSSIER"],
   OPERADOR_COBRANCA: ["READ_ACTIONABLE"],
   ENCARREGADO_LGPD: ["READ_AUDIT"],

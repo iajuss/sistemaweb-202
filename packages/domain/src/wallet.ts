@@ -14,6 +14,7 @@ export interface RawTitleRow {
 
 export type QuarantineReason =
   | "ID_EXTERNO_AUSENTE"
+  | "ID_EXTERNO_DUPLICADO"
   | "NOME_AUSENTE"
   | "CPF_INVALIDO"
   | "VALOR_INVALIDO"
@@ -87,12 +88,19 @@ function parseDueDate(raw: string): Date | null {
   return isSameDay ? parsed : null;
 }
 
-function quarantine(
+/**
+ * Exported because some reasons are only visible above one row — a repeated
+ * external id needs the rest of the file to be seen — and the record's shape
+ * stays owned here, where the rule that it never carries a CPF lives.
+ */
+export function quarantineTitleRow(
   rowNumber: number,
   reason: QuarantineReason,
 ): QuarantinedTitleRow {
   return { status: "QUARENTENA", rowNumber, reason };
 }
+
+const quarantine = quarantineTitleRow;
 
 /**
  * Validates one imported row. Returns the first failing field only: a row is

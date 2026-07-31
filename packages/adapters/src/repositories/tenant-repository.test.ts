@@ -23,6 +23,12 @@ import {
   type TenantTransactionDatabase,
   type TenantRecord,
 } from "./tenant-repository.js";
+import {
+  InMemoryDebtorRepository,
+  InMemoryImportAuditRepository,
+  InMemoryWalletTitleRepository,
+} from "./wallet-store.js";
+import { createInMemoryCpfCrypto } from "../kms.js";
 
 interface ObservationFixture extends TenantRecord {
   readonly source: "PGFN_DADOS_ABERTOS";
@@ -167,6 +173,12 @@ describe.each([
         new RlsDatabaseFixture(),
       ),
   ],
+  ["InMemoryWalletTitleRepository", () => new InMemoryWalletTitleRepository()],
+  [
+    "InMemoryDebtorRepository",
+    () => new InMemoryDebtorRepository(createInMemoryCpfCrypto()),
+  ],
+  ["InMemoryImportAuditRepository", () => new InMemoryImportAuditRepository()],
 ])("%s architectural invariants", (_name, build) => {
   it("keeps every internal out of reach as an own property", () => {
     expect(Object.keys(build() as object)).toEqual([]);

@@ -38,10 +38,17 @@ export interface TenantTransactionDatabase<T extends TenantRecord> {
   ): Promise<Result>;
 }
 
+type GuardedAction =
+  | "READ_DOSSIER"
+  | "READ_ACTIONABLE"
+  | "READ_AUDIT"
+  | "RUN_SOURCE"
+  | "IMPORT_WALLET";
+
 function assertOperation(
   principal: VerifiedPrincipal,
   operation: AuthorizedOperation,
-  requiredAction: "READ_DOSSIER" | "RUN_SOURCE",
+  requiredAction: GuardedAction,
 ): TenantContext {
   assertVerifiedPrincipal(principal);
   assertAuthorizedOperation(operation);
@@ -80,6 +87,27 @@ export function assertSourceIngestionOperation(
   operation: AuthorizedOperation,
 ): TenantContext {
   return assertOperation(principal, operation, "RUN_SOURCE");
+}
+
+export function assertWalletImportOperation(
+  principal: VerifiedPrincipal,
+  operation: AuthorizedOperation,
+): TenantContext {
+  return assertOperation(principal, operation, "IMPORT_WALLET");
+}
+
+export function assertActionableReadOperation(
+  principal: VerifiedPrincipal,
+  operation: AuthorizedOperation,
+): TenantContext {
+  return assertOperation(principal, operation, "READ_ACTIONABLE");
+}
+
+export function assertAuditReadOperation(
+  principal: VerifiedPrincipal,
+  operation: AuthorizedOperation,
+): TenantContext {
+  return assertOperation(principal, operation, "READ_AUDIT");
 }
 
 function assertWriteScope(

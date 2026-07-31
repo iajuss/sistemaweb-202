@@ -4,7 +4,11 @@ export {
   normalizeSpreadsheetMoney,
   parseSerializedCents,
 } from "./money.js";
-export { isValidCpf, validateTitleRow } from "./wallet.js";
+export {
+  isValidCpf,
+  quarantineTitleRow,
+  validateTitleRow,
+} from "./wallet.js";
 export type {
   AcceptedTitleRow,
   QuarantineReason,
