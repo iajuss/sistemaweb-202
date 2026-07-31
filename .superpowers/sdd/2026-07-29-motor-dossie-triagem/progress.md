@@ -1197,3 +1197,33 @@ títulos de `JOSE DA SILVA`, e dois é menos que o mínimo de três da política
    O texto agora diz isso e explica que barra de endereço não manda cabeçalho.
 
 Contagem de testes unitários do README atualizada de 445 para 505.
+
+### Documentação exigida, completada
+
+**`docs/fontes.md` reescrito.** Antes tinha uma tabela de situação e nenhuma das
+três colunas que o enunciado pede. Agora traz, por fonte: o que entrega em
+campos concretos, método de acesso, custo com preço marcado como pago ou
+gratuito, base legal resumida, e uma coluna **verificado** que separa o que foi
+conferido contra arquivo real do que é leitura de página pública. A Lista PGFN é
+a única marcada como verificada, com o que a verificação mostrou; os Dados
+Abertos continuam com o layout não verificado (F-3). Nenhum custo de bureau foi
+inventado: são "pago, preço não verificado, sem contrato".
+
+**`docs/lgpd.md` ganhou as três seções que faltavam.** Base legal por par fonte ×
+finalidade, com âncora e a situação de validação de cada linha — inclusive a
+carteira e o CPF completo, que não estavam lá. Direitos do titular, um por um,
+dizendo **como** cada um é atendido hoje e qual é o limite conhecido: correção é
+supersessão, eliminação é crypto-shredding com esqueleto preservado, revisão de
+decisão automatizada se apoia nos sinais nomeados. E o bloqueio de produção do
+ADR 021 escrito como o que ele é — imposição de runtime a cada chamada, não
+aviso em prosa.
+
+**`docs/casos-de-teste.md` criado.** Os casos obrigatórios do `AGENTS.md`, as
+pontuações calculadas à mão com a conta ao lado, os pesos da resolução de
+identidade com um exemplo conferível (0,9167 → `PROVAVEL`, logo não é fato), os
+casos negativos que carregam invariante, e os de integração. Cada linha aponta
+arquivo **e** nome do teste. Todos os nomes citados foram conferidos por busca
+contra os arquivos antes do commit — documento que aponta para teste inexistente
+é pior que documento nenhum.
+
+Linkado no `README.md` e na seção "Onde as coisas ficam" do `AGENTS.md`.

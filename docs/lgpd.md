@@ -19,6 +19,64 @@ As bases legais, contratos e avaliação de legítimo interesse exigem validaç�
 cliente antes de produção. A política técnica não declara que uma hipótese legal
 está comprovada.
 
+## Base legal por fonte e finalidade
+
+Uma linha por par fonte × finalidade. A matriz de fontes correspondente está em
+[`fontes.md`](fontes.md).
+
+| Fonte | Finalidade | Hipótese legal pretendida | Âncora | Situação |
+|---|---|---|---|---|
+| Carteira do cliente (devedor + títulos) | Delimitar quem pode ser consultado e organizar a cobrança | Execução de contrato entre cliente e devedor; tratamos na condição de **operador** | LGPD art. 7º, V | A validar pelo cliente |
+| CPF completo da carteira | Verificar a máscara publicada pela fonte contra a pessoa que o cliente já tem | Mesma do item acima, com minimização: cifrado em repouso, fragmento 4–9 só em memória | LGPD art. 6º, III; ADR 002 e ADR 003 | A validar |
+| PGFN Dados Abertos | Verificar existência de dívida ativa da pessoa da carteira | Legítimo interesse na cobrança de dívida própria do cliente, sobre dado público por lei | CTN art. 198, § 3º, II; LGPD art. 7º, IX | A validar |
+| PGFN Lista de Devedores | Mesma verificação, universo distinto, sob os filtros do export | Idem | CTN art. 198, § 3º, II; LGPD art. 7º, IX | A validar |
+| QSA/RFB | Contexto societário, sem peso na classificação (ADR 012) | Legítimo interesse sobre registro empresarial público | LGPD art. 7º, IX | Mapeada, não integrada |
+| Portal da Transparência (CEIS/CEAF) | Sanção administrativa publicada | Publicidade obrigatória de sanção | Lei 12.846/2013; LAI; LGPD art. 7º, IX | Mapeada, não integrada |
+| Bureaus de crédito | — | Não aplicável nesta v1 | — | Exige contrato e LIA própria |
+
+**Limites que a finalidade impõe, e que o código já obedece:**
+
+- Nenhuma consulta acontece fora de carteira autorizada. Consulta aberta por CPF
+  não existe: o único identificador que o chamador segura é o `id_externo` do
+  título, e o schema da requisição é estrito.
+- Dado sensível fica fora. Se uma fonte devolver incidentalmente, é descartado
+  antes de persistir.
+- Registro de **não-cliente** não é persistido, indexado, logado nem
+  intermediado em arquivo — vale para QSA e para as duas fontes da PGFN.
+- A pontuação **ordena esforço de cobrança** e não estima pagamento. Não é score
+  de crédito e não pode ser apresentada nem usada como se fosse (ADR 016).
+
+## Direitos do titular
+
+| Direito | Como é atendido hoje | Limite conhecido |
+|---|---|---|
+| **Confirmação e acesso** (art. 18, I e II) | O dossiê é a resposta: campos com valor, fonte, data de coleta e confiança do vínculo, mais a classificação e sua explicação | O pedido chega pelo cliente controlador; não há canal direto do titular nesta v1 |
+| **Correção** (art. 18, III) | Por **supersessão**, nunca por edição: emite-se dossiê novo com registro de revisão apontando para o anterior (ADR 018) | O dado publicado pela fonte não é corrigido por nós; a correção vale para a composição e a classificação |
+| **Anonimização, bloqueio ou eliminação** (art. 18, IV) | Crypto-shredding por titular: destruída a chave, o campo lê `ELIMINADO_A_PEDIDO_DO_TITULAR`, e o esqueleto pseudonimizado da decisão permanece (ADR 009) | O cofre de chaves é em memória nesta v1 (pendência F-5); em produção é o KMS do ADR 006 |
+| **Portabilidade** (art. 18, V) | O contrato de saída é JSON derivado de Zod, com JSON Schema e OpenAPI publicados | Não há botão de exportação; a entrega é pela API |
+| **Informação sobre compartilhamento** (art. 18, VII) | Nenhum dado pessoal é compartilhado com terceiro. As fontes são de leitura, e o CPF nunca vai em URL, log, mensagem de erro ou telemetria | — |
+| **Revisão de decisão automatizada** (art. 20) | Toda classificação se decompõe em **sinais nomeados, com peso e fonte**, e gera explicação legível. Cobertura insuficiente devolve `DADOS_INSUFICIENTES` e nunca nota baixa | A revisão humana é do cliente; não há fluxo de contestação embutido nesta v1 |
+| **Oposição** (art. 18, § 2º) | Endereçada ao cliente controlador | Sem canal direto nesta v1 |
+
+Toda consulta grava trilha de auditoria — quem, qual carteira, quando, quais
+fontes, qual resultado —, e é ela que sustenta os pedidos acima. O papel
+`ENCARREGADO_LGPD` lê essa trilha e **não** tem acesso operacional à carteira;
+`OPERADOR_COBRANCA` tem o inverso, e nunca vê CPF nem evidência de match
+integral.
+
+## Bloqueio de produção
+
+**Produção está proibida** até a validação fail-closed de JWT/JWKS — assinatura,
+issuer, audience, expiração e rotação (ADR 021, pendência P-1 em
+[`limitacoes-v1.md`](limitacoes-v1.md)).
+
+Não é aviso em prosa: fora de `NODE_ENV=development` a emissão de
+`VerifiedPrincipal` falha fechada **a cada chamada**, então um processo iniciado
+em produção não autentica ninguém e não serve dossiê nenhum. Enquanto isso valer,
+nenhum dado pessoal real deve ser importado — a demonstração recusa qualquer
+banco que não esteja em loopback antes mesmo de assumir o modo de
+desenvolvimento.
+
 ## Fonte PGFN: base documental
 
 Para Dados Abertos PGFN, a própria fonte declara que “os débitos inscritos em

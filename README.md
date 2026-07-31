@@ -13,6 +13,7 @@ camada de entrega.
 - Fontes, custo e base legal: [`docs/fontes.md`](docs/fontes.md)
 - LGPD, retenção e expurgo: [`docs/lgpd.md`](docs/lgpd.md)
 - O que a v1 não faz: [`docs/limitacoes-v1.md`](docs/limitacoes-v1.md)
+- Casos conferíveis à mão: [`docs/casos-de-teste.md`](docs/casos-de-teste.md)
 
 ## Pré-requisitos
 

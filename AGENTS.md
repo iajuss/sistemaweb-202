@@ -104,6 +104,7 @@ fonte mapeada e não integrada. Não adicione fontes sem me perguntar.
 - `docs/fontes.md` — matriz de fontes (o que entrega, custo, base legal, integrar ou não)
 - `docs/lgpd.md` — base legal por fonte e finalidade, retenção, expurgo
 - `docs/limitacoes-v1.md` — pendências conhecidas e assumidas
+- `docs/casos-de-teste.md` — casos conferíveis à mão e onde cada um mora
 - `.agents/plans/` — planos de implementação
 
 ## Comandos
