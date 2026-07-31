@@ -5,6 +5,9 @@ on:
   pull_request:
 
 jobs:
+  # The steps below are the README's sequence, in the README's order, run with
+  # the README's commands. A pipeline that verifies something else verifies
+  # nothing about the document a person actually follows.
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +20,23 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # A fresh install has no generated Prisma Client, and without it `tsc`
+      # reports implicit `any` on transaction callbacks. Defect E-2.
+      - run: pnpm exec prisma generate
+      # `pnpm test` includes the integration suite, which calls
+      # `docker compose exec` against a real PostgreSQL rather than a mock.
+      # Without the stack up it fails with `service "postgres" is not running`,
+      # which is the suite working as designed.
+      - run: pnpm compose:up
+      - run: pnpm migrate
       - run: pnpm generate:contracts
+      # Zod is the single source of truth: a regenerated artefact that differs
+      # from the committed one means the contract on disk no longer describes
+      # the validator that runs.
+      - name: contracts have no regenerated drift
+        run: git diff --exit-code -- packages/contracts/generated
       - run: pnpm test
       - run: pnpm lint
       - run: pnpm typecheck
+      - if: always()
+        run: pnpm compose:down
