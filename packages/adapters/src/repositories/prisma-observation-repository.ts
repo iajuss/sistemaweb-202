@@ -163,6 +163,19 @@ class PrismaObservationDatabase
 }
 
 const repositoryConstructionAuthority = Object.freeze({});
+const factoryIssuedRepositories =
+  new WeakSet<PrismaAuthorizedObservationRepository>();
+
+/**
+ * Per-call authority. The constructor alone is not a trust boundary: an
+ * `Object.create(prototype)` instance never runs it, so every data path
+ * checks membership instead of trusting that construction happened.
+ */
+function assertFactoryIssuedRepository(candidate: unknown): void {
+  if (!factoryIssuedRepositories.has(candidate as never)) {
+    throw new Error("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
+  }
+}
 
 export class PrismaAuthorizedObservationRepository {
   private readonly writer: TransactionalTenantScopedRepository<ObservationPersistenceRecord>;
@@ -179,6 +192,10 @@ export class PrismaAuthorizedObservationRepository {
       throw new Error("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
     }
     this.writer = new TransactionalTenantScopedRepository(database);
+    // Freezing stops a caller from swapping `database`/`writer` on a
+    // legitimately built instance after the fact.
+    Object.freeze(this);
+    factoryIssuedRepositories.add(this);
   }
 
   public async save(
@@ -186,6 +203,7 @@ export class PrismaAuthorizedObservationRepository {
     operation: import("@panella/application").AuthorizedOperation,
     value: ObservationPersistenceRecord,
   ): Promise<void> {
+    assertFactoryIssuedRepository(this);
     await this.writer.save(principal, operation, value);
   }
 
@@ -194,6 +212,7 @@ export class PrismaAuthorizedObservationRepository {
     operation: import("@panella/application").AuthorizedOperation,
     id: string,
   ): Promise<ObservationPersistenceRecord | null> {
+    assertFactoryIssuedRepository(this);
     const context = assertReadOperation(principal, operation);
     const record = await this.database.findAuthorized(
       context.tenantId,

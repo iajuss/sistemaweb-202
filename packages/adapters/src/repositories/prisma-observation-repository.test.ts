@@ -116,6 +116,39 @@ describe("Prisma observation repository", () => {
     ).toThrow("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
   });
 
+  it("refuses to read from a repository instance that never ran the factory constructor", async () => {
+    const { principal, operation } = await authorizedOperation({
+      kind: "AGENT",
+      action: "READ_DOSSIER",
+    });
+    const rogue = Object.create(
+      PrismaAuthorizedObservationRepository.prototype,
+    ) as PrismaAuthorizedObservationRepository;
+    Object.assign(rogue, {
+      database: { findAuthorized: async () => observationFixture },
+    });
+
+    await expect(
+      rogue.find(principal, operation, "observation-a"),
+    ).rejects.toThrow("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
+  });
+
+  it("refuses to write through a repository instance that never ran the factory constructor", async () => {
+    const { principal, operation } = await authorizedOperation();
+    const persisted: unknown[] = [];
+    const rogue = Object.create(
+      PrismaAuthorizedObservationRepository.prototype,
+    ) as PrismaAuthorizedObservationRepository;
+    Object.assign(rogue, {
+      writer: { save: async (value: unknown) => void persisted.push(value) },
+    });
+
+    await expect(
+      rogue.save(principal, operation, observationFixture),
+    ).rejects.toThrow("PRISMA_REPOSITORY_CONSTRUCTION_FORBIDDEN");
+    expect(persisted).toEqual([]);
+  });
+
   it("does not return an observation whose tenant differs from the authorized operation", async () => {
     const transaction = {
       $queryRaw: async () => [{ isSuperuser: false, canBypassRls: false }],

@@ -130,6 +130,8 @@ function assertDevelopmentEnvironment(): void {
  */
 function assertDevelopmentIssuer(candidate: unknown): void {
   assertDevelopmentEnvironment();
+  // The WeakSet is the control. `instanceof` narrows the type but is not a
+  // security check: a `Symbol.hasInstance` override forces it to true.
   if (
     !(candidate instanceof DevInsecureIdentityProvider) ||
     !optedInDevelopmentProviders.has(candidate)

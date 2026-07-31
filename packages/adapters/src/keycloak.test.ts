@@ -112,6 +112,21 @@ describe("identity middleware", () => {
     ).toThrow("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
   });
 
+  it("stops issuing principals when the environment leaves development after construction", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const provider = new DevInsecureIdentityProvider({
+      allowInsecureDevelopmentIdentity: true,
+    });
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(() =>
+      provider.authenticateSystemWorker({
+        issuer: "internal://workers",
+        subject: "worker-a",
+      }),
+    ).toThrow("DEV_INSECURE_IDENTITY_PROVIDER_FORBIDDEN");
+  });
+
   it("rejects a principal reflected from a legitimate principal constructor", async () => {
     const legitimate = await issueDevelopmentPrincipal({
       subject: "human-subject",
