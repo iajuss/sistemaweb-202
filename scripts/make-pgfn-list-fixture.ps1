@@ -125,6 +125,13 @@ try {
     }
   }
 
+  # The sheet is named after the real query that produced the export, and Excel
+  # stamps the signed-in user into docProps on save. Both are residue of the
+  # real file and have no business in a fixture that claims to be synthetic.
+  $sheet.Name = 'Lista'
+  # 8 = xlRDIDocumentProperties, Excel's own Document Inspector removal.
+  $workbook.RemoveDocumentInformation(8)
+
   # Excel refuses SaveAs straight into the OneDrive-synced working copy, so it
   # writes to a temp path and the file is copied in afterwards.
   $staging = Join-Path $env:TEMP ("pgfn-lista-fixture-{0}.xlsx" -f [guid]::NewGuid())

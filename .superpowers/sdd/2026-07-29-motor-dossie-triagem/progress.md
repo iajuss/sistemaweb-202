@@ -344,3 +344,51 @@ Earlier in the same session, by user direction:
 Next: Task 6 — observations, coverage and dossier composition, which consumes
 this resolver and must propagate `AMBIGUO` and `PROVAVEL` as non-facts all the
 way into the snapshot.
+
+---
+
+CHECKPOINT 2026-07-31 (segundo desta sessão).
+
+Slice in progress: **none open.** Tasks 4, 8 and 5 are closed; Task 6 is the
+next to start and has not been begun.
+
+Suite at checkpoint: 243 tests, 0 failures, 0 skipped. Lint, typecheck and
+contract generation exit 0, no regenerated-artifact drift. PostgreSQL/RLS
+integration ran against the real container.
+
+Done since the previous checkpoint: Task 4 closed (CSV and XLSX parsers,
+`import-wallet` with non-mutating preview and idempotent commit), Task 8 closed
+(mask verification, coverage manifest, Dados Abertos ingestion, manual list
+importer with per-block provenance), Task 5 closed (identity resolution with
+abstention), ADR 022 and ADR 023 written, `AGENTS.md` rebuilt, Task 6.5 created
+and positioned after Task 6.
+
+Fixture hygiene fixed at this checkpoint, before the first push: the
+Excel-produced `lista-manual.xlsx` still carried `lastModifiedBy` with the
+user's real name and a sheet named after the real query that produced the
+export. Both are residue of the real file and had no business in a fixture that
+claims to be synthetic. `scripts/make-pgfn-list-fixture.ps1` now renames the
+sheet and calls Excel's own Document Inspector removal
+(`RemoveDocumentInformation(8)`) before saving. Verified absent afterwards, and
+the workbook is still Excel-written.
+
+Open pendencies, unchanged unless noted:
+
+- P-1 — ADR 021 JWT/JWKS. Still the only item blocking a real deploy.
+- I-2, I-3, I-4, I-5 and the five Minors — see `docs/limitacoes-v1.md`.
+- F-3 — Dados Abertos column layout not contract-verified. Unexpected layout
+  fails loudly rather than yielding empty fields.
+- F-4 — block separator heuristic on a single sample. Failure mode pinned: a
+  block never inherits the provenance of the block above it.
+- E-1, E-2 — environment defects.
+- **Task 6.5** — wallet and observations still persist in memory, not
+  PostgreSQL. Positioned immediately after Task 6, with acceptance criteria in
+  the plan.
+- The wallet normalizer accepts `1,2` while `Money.fromDecimalString` still
+  requires two decimals. Intentional and tested on both sides; recorded so it
+  is not read later as an inconsistency to be "fixed".
+
+Next action: **Task 6 — observations, coverage and dossier composition.** The
+resolver's `AMBIGUO` and `PROVAVEL` must cross composition without becoming
+fact anywhere, and insufficient coverage must produce `DADOS_INSUFICIENTES`
+rather than a low score.
