@@ -8,6 +8,19 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // Fixture generators are Node scripts, not application code: they run on
+    // the developer's machine and never ship.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        URL: "readonly",
+        console: "readonly",
+        process: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.ts"],
     ignores: ["packages/adapters/src/repositories/**/*.ts"],
     rules: {
