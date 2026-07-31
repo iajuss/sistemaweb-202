@@ -46,6 +46,20 @@ export type {
 } from "./authorization.js";
 export { isMaskCompatibleWithCpf, parseCpfMask } from "./identity/mask.js";
 export type { CpfMask } from "./identity/mask.js";
+export { nameTokens, normalizeName } from "./identity/normalize.js";
+export { IDENTITY_POLICY_2026_07_A } from "./identity/policy.js";
+export type { IdentityPolicy } from "./identity/policy.js";
+export { resolveIdentity, scoreName } from "./identity/resolver.js";
+export type {
+  IdentityCandidate,
+  IdentityResolution,
+  IdentityStatus,
+  NameMatchStatus,
+  NameScore,
+  PublishedRecord,
+  RuleOutcome,
+  WalletDebtor,
+} from "./identity/resolver.js";
 export { IdentityRefSchema } from "./identity.js";
 export type { IdentityRef } from "./identity.js";
 export { SOURCE_STATUSES, SourceStatusSchema } from "./source-status.js";
