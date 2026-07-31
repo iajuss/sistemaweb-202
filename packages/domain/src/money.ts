@@ -77,3 +77,25 @@ export function parseSerializedCents(input: unknown): Money {
   const serializedCents = SerializedCentsSchema.parse(input);
   return Money.fromCents(BigInt(serializedCents));
 }
+
+const SPREADSHEET_MONEY_PATTERN = /^(-?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2}))?$/;
+
+/**
+ * Brazilian spreadsheet money (`1.234,56`) to the canonical decimal string
+ * `Money.fromDecimalString` accepts. Lives in the domain because rejecting a
+ * malformed amount is an invariant, not a parsing convenience; the adapters
+ * re-export it so both the wallet import and the PGFN sheets share one rule.
+ */
+export function normalizeSpreadsheetMoney(raw: string): string {
+  if (typeof raw !== "string") {
+    throw new TypeError("SPREADSHEET_MONEY_MUST_BE_A_STRING");
+  }
+
+  const parts = SPREADSHEET_MONEY_PATTERN.exec(raw);
+  if (parts === null) {
+    throw new TypeError("SPREADSHEET_MONEY_FORMAT_INVALID");
+  }
+
+  const [, sign, whole, fraction = "00"] = parts;
+  return `${sign}${whole.replaceAll(".", "")}.${fraction}`;
+}

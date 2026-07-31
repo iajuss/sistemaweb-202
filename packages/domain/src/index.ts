@@ -1,4 +1,17 @@
-export { Money, SerializedCentsSchema, parseSerializedCents } from "./money.js";
+export {
+  Money,
+  SerializedCentsSchema,
+  normalizeSpreadsheetMoney,
+  parseSerializedCents,
+} from "./money.js";
+export { isValidCpf, validateTitleRow } from "./wallet.js";
+export type {
+  AcceptedTitleRow,
+  QuarantineReason,
+  QuarantinedTitleRow,
+  RawTitleRow,
+  ValidatedTitleRow,
+} from "./wallet.js";
 export {
   ActorKindSchema,
   ActorIssuanceOriginSchema,
