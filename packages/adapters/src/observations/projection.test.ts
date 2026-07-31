@@ -331,19 +331,19 @@ describe("projecting the manual PGFN list", () => {
           tradeName: "",
           totalAmount: {
             cents: 2_916_388_644n,
-            publishedText: "29163886,440000001",
+            raw: "29163886,440000001",
             roundedFromExcessPrecision: true,
           },
           selectedAmount: {
             cents: 150_000n,
-            publishedText: "1500,00",
+            raw: "1500,00",
             roundedFromExcessPrecision: false,
           },
         },
       ],
       rejected: [],
       ...overrides,
-    } as PgfnListBlock;
+    };
   }
 
   function listObservation(

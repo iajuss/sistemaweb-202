@@ -320,6 +320,65 @@ describe("the import audit is append-only in the database", () => {
   });
 });
 
+describe("the read path resolves a debtor from the external title id", () => {
+  async function readOperation(tenantId: string, walletId: string) {
+    const operation = await authorizeOperation(
+      await agentOf(tenantId),
+      walletId,
+      "READ_DOSSIER",
+      new WalletFixture(tenantId, walletId, ACTIONS),
+    );
+    if (!operation) throw new Error("EXPECTED_OPERATION");
+    return operation;
+  }
+
+  it("answers with the debtor the wallet holds under that id", async () => {
+    await importInto(TENANT_A, WALLET_A);
+    const operation = await readOperation(TENANT_A, WALLET_A);
+
+    const debtorId = await store.titles.findDebtorByExternalId(
+      operation.principal,
+      operation,
+      "TIT-001",
+    );
+
+    expect(debtorId).toBe(
+      ownerSql(
+        `SELECT "debtorId" FROM "Title" WHERE "tenantId" = '${TENANT_A}' AND "externalId" = 'TIT-001';`,
+      ).trim(),
+    );
+  });
+
+  it("does not answer for a title held by another wallet of the same tenant", async () => {
+    await importInto(TENANT_A, WALLET_A);
+    const operation = await readOperation(TENANT_A, WALLET_A2);
+
+    // Same tenant on both sides, so RLS sees nothing wrong. The wallet scope
+    // is the application's job, and per ADR 020 it may never be delegated to
+    // the policy that stands behind it.
+    expect(
+      await store.titles.findDebtorByExternalId(
+        operation.principal,
+        operation,
+        "TIT-001",
+      ),
+    ).toBeNull();
+  });
+
+  it("does not answer for a title of another tenant", async () => {
+    await importInto(TENANT_B, WALLET_B);
+    const operation = await readOperation(TENANT_A, WALLET_A);
+
+    expect(
+      await store.titles.findDebtorByExternalId(
+        operation.principal,
+        operation,
+        "TIT-001",
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("an observation belongs to the debtor, never to a wallet", () => {
   it("is readable from a second wallet that contains the same debtor", async () => {
     await importInto(TENANT_A, WALLET_A);

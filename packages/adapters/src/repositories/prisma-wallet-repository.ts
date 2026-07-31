@@ -210,6 +210,42 @@ export class PrismaWalletTitleRepository {
   }
 
   /**
+   * The only handle the agent-facing read path holds. It is the external title
+   * id and never a CPF, so a caller can only ask about a title the client
+   * already imported.
+   *
+   * Scoped to the wallet as well as the tenant: two wallets of one tenant sit
+   * on the same side of RLS, so the wallet check is the application's and may
+   * never be delegated to the policy standing behind it (ADR 020).
+   */
+  public async findDebtorByExternalId(
+    principal: VerifiedPrincipal,
+    operation: AuthorizedOperation,
+    externalId: string,
+  ): Promise<string | null> {
+    assertFactoryIssued(this);
+    const context = assertReadOperation(principal, operation);
+    return inTenantTransaction(this.#client, context.tenantId, async (tx) => {
+      const title = await tx.title.findFirst({
+        where: {
+          tenantId: context.tenantId,
+          walletId: operation.walletId,
+          externalId,
+        },
+        select: { debtorId: true, tenantId: true },
+      });
+      // The wallet scope is in the query above and stated once: a second copy
+      // here would mean neither could be knocked down by a test, and a guard
+      // no test can falsify is a false guarantee (defect I-4). RLS remains the
+      // second barrier for the tenant, never the only one.
+      if (!title || title.tenantId !== context.tenantId) {
+        return null;
+      }
+      return title.debtorId;
+    });
+  }
+
+  /**
    * The wallet-scoped debtor lookup the dossier composition needs. A debtor
    * absent from this wallet has no answer: the wallet is what authorizes the
    * read, and holding a capability for it is not holding one for the tenant.
