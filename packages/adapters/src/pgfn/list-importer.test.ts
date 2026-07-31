@@ -55,6 +55,26 @@ describe("importPgfnList", () => {
     expect(orphan?.rows).toHaveLength(2);
   });
 
+  it("never lets a block inherit the provenance of the block above it", () => {
+    const imported = importPgfnList(workbook());
+    const [first, orphan] = imported.blocks;
+
+    // The separator threshold is a guess made on a single sample (F-4), so the
+    // failure mode is what has to be safe. Splitting in the wrong place can
+    // cost a block its provenance; it must never hand a block someone else's
+    // filters, because that is a false claim about which query produced these
+    // rows rather than a missing one.
+    const rendered = JSON.stringify(orphan, (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value,
+    );
+
+    expect(first.provenance).not.toBeNull();
+    expect(orphan.provenance).toBeNull();
+    expect(orphan.status).toBe("SEM_PROCEDENCIA");
+    expect(rendered).not.toContain("Multa Eleitoral");
+    expect(rendered).not.toContain("Data da pesquisa");
+  });
+
   it("keeps the two published amounts as two fields", () => {
     const imported = importPgfnList(workbook());
     const row = imported.blocks[0].rows[0];

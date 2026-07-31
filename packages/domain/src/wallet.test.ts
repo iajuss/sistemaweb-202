@@ -66,12 +66,23 @@ describe("validateTitleRow", () => {
 
   it.each([
     ["1234.56", "a dot where the spreadsheet uses a comma"],
-    ["1,2", "a single decimal place"],
+    ["1234,561", "a tenth of a cent, which would have to be truncated"],
     ["", "an empty cell"],
   ])("quarantines the amount %s (%s)", (amount) => {
     expect(validateTitleRow({ ...validRow, amount }, 7)).toMatchObject({
       reason: "VALOR_INVALIDO",
     });
+  });
+
+  it.each([
+    ["1,2", 120n],
+    ["1.234,5", 123450n],
+    ["1234", 123400n],
+  ])("accepts %s, the way an ERP writes a column in reais", (amount, cents) => {
+    const result = validateTitleRow({ ...validRow, amount }, 7);
+
+    if (result.status !== "ACEITO") throw new Error("EXPECTED_ACCEPTED_ROW");
+    expect(result.amount.toCents()).toBe(cents);
   });
 
   it("quarantines a due date that is not a real calendar day", () => {

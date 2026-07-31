@@ -20,6 +20,19 @@ describe("normalizeSpreadsheetMoney", () => {
   });
 
   it.each([
+    ["1,2", "1.20"],
+    ["1.234,5", "1234.50"],
+    ["0,5", "0.50"],
+  ])("reads %s as %s, because a column in reais is not ambiguous", (raw, expected) => {
+    // The two-decimal requirement belongs to the canonical constructor, where
+    // the ambiguity between cents and reais is real. A spreadsheet column
+    // documented in reais has no such ambiguity: 1,2 is R$ 1,20, and an ERP
+    // writes it that way constantly. The rule was being enforced a layer too
+    // early, which quarantined perfectly readable money.
+    expect(normalizeSpreadsheetMoney(raw)).toBe(expected);
+  });
+
+  it.each([
     ["1.234,5600", "1234.56"],
     ["1234,560000", "1234.56"],
     ["0,0000", "0.00"],

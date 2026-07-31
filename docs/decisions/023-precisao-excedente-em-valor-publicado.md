@@ -33,11 +33,19 @@ Os dois casos parecem o mesmo problema e não são:
 
 Duas funções, duas regras, nenhuma se disfarçando da outra.
 
-`normalizeSpreadsheetMoney` (carteira) permanece estrita: casas extras são
-aceitas **somente quando zeros** — `1.234,5600` é exatamente `1.234,56`, e
-export de ERP formata quatro casas por hábito. Precisão não-zero levanta
-`SPREADSHEET_MONEY_PRECISION_EXCEEDS_CENTS` e a linha vai para quarentena com
-relatório.
+`normalizeSpreadsheetMoney` (carteira) aceita **zero, uma ou duas casas** —
+`1234` é R$ 1.234,00 e `1,2` é R$ 1,20, que é como um ERP escreve uma coluna
+documentada em reais. Casas além das duas passam **somente quando zeros**:
+`1.234,5600` é exatamente `1.234,56`, e export de ERP formata quatro casas por
+hábito. Precisão não-zero levanta `SPREADSHEET_MONEY_PRECISION_EXCEEDS_CENTS` e
+a linha vai para quarentena com relatório.
+
+A exigência de duas casas pertence a `Money.fromDecimalString`, e só lá: no
+construtor a ambiguidade entre centavos e reais é real, e `"1234.5"` continua
+recusado. Ela estava sendo imposta uma camada cedo demais, no normalizador de
+borda, onde a coluna já é documentada em reais e ambiguidade não existe — o
+efeito era quarentenar dinheiro perfeitamente legível. Um teste amarra as duas
+camadas para que a assimetria não seja "corrigida" por engano.
 
 `normalizeSourceMoney` (fonte publicada) devolve
 `{ cents, raw, roundedFromExcessPrecision }`:

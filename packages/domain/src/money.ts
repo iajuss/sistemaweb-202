@@ -79,7 +79,7 @@ export function parseSerializedCents(input: unknown): Money {
 }
 
 const SPREADSHEET_MONEY_PATTERN =
-  /^(-?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2})(\d*))?$/;
+  /^(-?)(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2})(\d*))?$/;
 
 /**
  * Brazilian spreadsheet money (`1.234,56`) to the canonical decimal string
@@ -97,7 +97,13 @@ export function normalizeSpreadsheetMoney(raw: string): string {
     throw new TypeError("SPREADSHEET_MONEY_FORMAT_INVALID");
   }
 
-  const [, sign, whole, fraction = "00", excess = ""] = parts;
+  const [, sign, rawWhole, rawFraction = "", excess = ""] = parts;
+  // A column documented in reais is not ambiguous: `1,2` is R$ 1,20 and `1234`
+  // is R$ 1.234,00, which is how an ERP writes them. The two-decimal
+  // requirement belongs to `Money.fromDecimalString`, where the ambiguity
+  // between cents and reais is real — enforcing it here quarantined money that
+  // was perfectly readable.
+  const fraction = rawFraction.padEnd(2, "0");
   // ERP exports routinely format four decimal places, and 1234,5600 is exactly
   // 1234,56 — refusing a wallet over cell formatting would be a bad surprise.
   // A non-zero digit past the cents is different: dropping it would change the
@@ -107,5 +113,5 @@ export function normalizeSpreadsheetMoney(raw: string): string {
     throw new TypeError("SPREADSHEET_MONEY_PRECISION_EXCEEDS_CENTS");
   }
 
-  return `${sign}${whole.replaceAll(".", "")}.${fraction}`;
+  return `${sign}${rawWhole.replaceAll(".", "")}.${fraction}`;
 }

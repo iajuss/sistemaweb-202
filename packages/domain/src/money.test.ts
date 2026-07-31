@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { Money, parseSerializedCents } from "./money.js";
+import {
+  Money,
+  normalizeSpreadsheetMoney,
+  parseSerializedCents,
+} from "./money.js";
 
 describe("Money", () => {
   it("does not expose a constructible runtime value", () => {
@@ -70,6 +74,16 @@ describe("Money", () => {
     "1234.56",
   ])("rejects non-serialized-cent values in the parser %#", (raw) => {
     expect(() => parseSerializedCents(raw)).toThrow();
+  });
+
+  it("stays strict where the ambiguity is real, and only there", () => {
+    // The constructor cannot tell whether "1234.5" means reais or cents, so it
+    // refuses. The spreadsheet normalizer reads a column documented in reais,
+    // where "1234,5" is unambiguously R$ 1.234,50 — the strictness belongs to
+    // this layer, and enforcing it one layer earlier quarantined real money.
+    expect(() => Money.fromDecimalString("1234.5")).toThrow(TypeError);
+    expect(Money.fromDecimalString(normalizeSpreadsheetMoney("1234,5")).toCents())
+      .toBe(123450n);
   });
 
   it("keeps serialized cents and canonical decimals disjoint", () => {
