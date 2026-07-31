@@ -80,3 +80,80 @@ Suite at checkpoint: 109 tests, 0 failures, 0 skipped (domain 40, adapters 56, c
 Open pendencies: `docs/limitacoes-v1.md` holds the full list — P-1 (ADR 021 JWT/JWKS, the only item blocking a real deploy), I-2, I-3, I-4, I-5, five Minors and two environment defects. None is exercisable without an HTTP surface, which arrives in Task 11.
 
 Plan reordered to a thin vertical path (user-directed 2026-07-31): 4 → 8 → 5 → 6 → 7 → 11, then 9 → 10 → 12. The goal is the four features of the brief working narrowly end to end, not two of them complete. Scope reductions: Task 9 becomes documentation, with QSA/RFB and Portal da Transparência as mapped-and-not-integrated sources in `docs/fontes.md` plus an adapter stub, which the brief explicitly authorizes; Task 10 stays on the ADR 009 policy with a partial purge job; Task 12 becomes a minimal UI of two screens, wallet priorities and dossier. Cheap deliverables treated as mandatory: complete `docs/fontes.md`, `docs/lgpd.md` with legal basis per source, `README.md` with one-command reproducible setup, and the small set of hand-checkable test cases.
+
+---
+
+Task 4: CLOSED (commits `a41d74f..e62caa5`). Suite: 147 tests, 0 failures, 0
+skipped. Lint, typecheck and contract generation exit 0, with no regenerated
+artifact drift. PostgreSQL/RLS integration ran against the real container.
+
+What landed beyond the domain layer already committed at the checkpoint:
+
+- **CSV parser** (`packages/adapters/src/wallet-importers/csv.ts`). Encoding is
+  decided rather than guessed: a BOM self-declares, and otherwise a strict UTF-8
+  decode either succeeds or proves the file is CP1252, because CP1252 accented
+  bytes are not valid UTF-8 sequences. The delimiter is counted on the header
+  line alone — counting the whole file lets a decimal comma outvote the real
+  delimiter on a semicolon file. Headers are matched folded (case, accent,
+  padding). Row numbers are physical file lines, so a blank line in the middle
+  does not shift what the operator sees in the report.
+- **XLSX reader** without any new dependency — see ADR 022. SheetJS is off the
+  public npm registry, exceljs is a dependency tree for a four-column read, and
+  the E-1 `node_modules` defect had already cost two sessions. Covers the ZIP
+  central directory (STORED and DEFLATE), shared strings including split runs,
+  inline and formula cells, and date serials resolved through `styles.xml`
+  (built-in date formats plus custom formats containing y/m/d). A numeric cell
+  is reshaped into Brazilian decimal text, never parsed, so no wallet amount
+  passes through binary floating point.
+- **`packages/application/src/import-wallet.ts`**. `previewWalletImport` takes
+  bytes and a parser and nothing else: non-mutation is structural, not a
+  promise. `commitWalletImport` authorizes `IMPORT_WALLET`, derives the title id
+  from tenant + wallet + `id_externo` so a re-import lands on the same rows
+  without a read-before-write, resolves the debtor from the CPF HMAC index,
+  encrypts the CPF through the existing AEAD service, and appends an import
+  audit with actor, timestamp, file hash and per-reason quarantine counts.
+- **`IMPORT_WALLET`** joins `AuthorizationActionSchema`, held by `ADMIN_TENANT`
+  and by agent wallet grants. Three new repositories in
+  `repositories/wallet-store.ts` inherit the layer's architectural invariants by
+  being added to that `describe.each` list.
+- **Fixtures** `valid-cp1252-semicolon.csv`, `invalid-cpf.csv` and `titles.xlsx`,
+  with `scripts/make-wallet-fixtures.mjs` committed beside them: a fixture that
+  claims to be synthetic should be provably synthetic, and neither the CP1252
+  file nor the workbook can be reviewed by reading a diff. `.gitattributes`
+  stops autocrlf from rewriting exactly the bytes under test.
+
+Design decisions taken inline and recorded here:
+
+1. **The wallet row now carries the debtor name.** Identity resolution starts
+   from name + CPF, so a row without a name cannot produce a dossier; it is
+   quarantined (`NOME_AUSENTE`) rather than accepted into a wallet it cannot
+   serve. This is the input Task 5 consumes.
+2. **`ID_EXTERNO_DUPLICADO`** quarantines the second row carrying an external id
+   already seen in the same file. The rule needs the rest of the file to be
+   visible, so it lives in the application service, not in `validateTitleRow`.
+3. **An amount with more than two decimal places quarantines the row.** The
+   parser emits the cell verbatim in Brazilian form and lets
+   `normalizeSpreadsheetMoney` reject it. Truncating silently would change money;
+   quarantine with a report is the `AGENTS.md` prescription.
+
+Mutation evidence, each mutation failing exactly the tests that claim it:
+keying titles on `debtorId` instead of `externalId` fails 3 tests; downgrading
+the commit gate from `IMPORT_WALLET` to `READ_DOSSIER` fails 8; removing the
+XLSX rels resolution fails 3; removing custom `numFmt` date detection fails 1.
+
+Task 4: open pendency — **titles are persisted in memory, not in PostgreSQL.**
+`wallet-store.ts` implements the ports with the same authority pattern as the
+Prisma repositories (factory-issued, `#` fields, frozen prototypes), so the
+swap is local, but no `Title`/`Debtor` row is written to the database yet. The
+schema already has both tables. Deliberate: the vertical path needs Tasks 5–8
+running end to end more than it needs durable storage, and the HTTP surface
+that would expose this arrives in Task 11. Trigger to close: Task 11.
+
+Task 4: unverified — no Excel-produced workbook has been read in test. The
+fixture is synthetic and shaped like Excel's output (DEFLATE, shared strings
+with a split run, inline string, styled date serial), and the ZIP container was
+verified against an independent implementation (.NET `ZipFile`), but that is
+evidence of format, not of field. Recorded in ADR 022; the first real client
+file is the test that is missing.
+
+Next: Task 8 — PGFN Dados Abertos, one source working end to end.
