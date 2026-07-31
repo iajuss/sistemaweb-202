@@ -979,3 +979,72 @@ Próxima ação: **views redigidas por papel** — último item aberto da Task 1
 `operador_cobranca` nunca vê CPF completo nem evidência de match integral; o
 papel de auditoria lê a trilha sem acesso operacional à carteira. É invariante
 de `AGENTS.md`, então precisa de teste que falhe se for afrouxado.
+
+### Task 11 — visões redigidas por papel (último item aberto da fatia)
+
+Suíte: **479 unitários** (era 445), 0 falhas. `lint`, `typecheck` e
+`generate:contracts` saem 0, sem deriva.
+
+`packages/contracts/src/role-view.ts` projeta o dossiê para um papel humano.
+**A visibilidade é tabela declarada**, como os pesos da política — regra
+espalhada em `if` é regra que ninguém revisa:
+
+| papel | campos | devedor | classificação | evidência detalhada | trilha |
+|---|---|---|---|---|---|
+| `ADMIN_TENANT` | não | não | não | não | não |
+| `ANALISTA_DOSSIE` | sim | sim | sim | **sim** | não |
+| `OPERADOR_COBRANCA` | sim | sim | sim | **não** | não |
+| `ENCARREGADO_LGPD` | **não** | não | sim | não | **sim** |
+
+Decisões tomadas inline, não cobertas por ADR:
+
+1. **Ninguém vê o documento — não só o operador.** A invariante nomeia
+   `operador_cobranca`, mas nenhum papel precisa de CPF numa tela: o operador
+   liga para a pessoa pelo nome, e o analista revisa o match por regra de nome.
+   A guarda `assertNoDocument` roda sobre a visão pronta, conhece o CPF real
+   porque a projeção o recebeu, e confere as três formas — 11 dígitos,
+   pontuada e o fragmento 4-9 — mais o padrão pontuado de qualquer documento.
+   O vazamento realista é o operador digitar o CPF na coluna de nome da
+   planilha; aí a projeção falha fechada com `DOCUMENTO_EM_VISAO_DE_PAPEL` em
+   vez de renderizar.
+2. **O operador recebe quantas regras casaram, nunca quais.** "Evidência de
+   match integral" é material de revisão; o trabalho do operador é decidir uma
+   abordagem, não auditar um vínculo. A contagem diz que o match foi examinado
+   sem dizer o que desta pessoa casou com que registro público.
+3. **A auditoria lê o esqueleto da decisão, não a carteira.** `ENCARREGADO_LGPD`
+   fica com a trilha mais categoria, versão de regras, sinais nomeados e
+   explicação — que é exatamente o que o direito de revisão trata (`docs/lgpd.md`)
+   — e sem devedor e sem valores. É a autorização espelhada na visão:
+   `READ_AUDIT` e nada mais.
+4. **`parametrosConsulta` não entra em visão nenhuma.** Os parâmetros da lista
+   manual carregam os filtros publicados, e o caminho da PGFN trabalha com
+   máscara; parâmetro de consulta é procedência para o dossiê, não texto de
+   tela.
+5. **`AGENTE` não é audiência desta projeção.** O agente já tem contrato
+   próprio (JSON estrito e projeção de prompt), ambos com golden test. Uma
+   segunda superfície para ele seria contrato duplicado.
+
+`packages/contracts/src/format.ts` é **a única formatação brasileira, e mora na
+borda de apresentação**. Agrupa milhar sobre os dígitos de um `bigint`: o
+formatador de locale da plataforma recebe `number`, que é a conversão que este
+código inteiro existe para evitar, e a fonte real publica `29163886,440000001`.
+Um teste varre o próprio arquivo por `Number(`, `parseFloat`, `parseInt` e pelo
+nome do formatador de locale. Instante sai como `31/07/2026 17:40 UTC`: a zona é
+declarada e não convertida, porque converter exige fuso de tenant que ninguém
+configurou e hora errada em trilha de auditoria é pior que zona explícita.
+
+Matriz de mutação — cada mutação derruba exatamente os testes que a reivindicam:
+
+| Mutação | Testes que falham |
+|---|---|
+| Chamada de `assertNoDocument` removida | 2 |
+| `evidenciaDetalhada` do operador ligada | 1 |
+| `campos` da auditoria ligados | 1 |
+| `devedor` da auditoria ligado | 1 |
+| `trilha` do operador ligada | 1 |
+| Dinheiro renderizado sem formatação brasileira | 1 |
+
+Dois testes de fixação entraram em `authorization.test.ts` — auditoria sem ação
+operacional, operador sem `READ_AUDIT` nem `READ_DOSSIER`. Nasceram verdes, de
+propósito: o comportamento já existia e o que faltava era a prova de que
+alargar a tabela derruba alguma coisa.

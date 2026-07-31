@@ -58,6 +58,50 @@ describe("authorize", () => {
     ).toEqual({ allowed: true });
   });
 
+  /**
+   * The separation the role-redacted views rest on. These pass today; they
+   * exist so that widening the table fails something. Giving the audit role an
+   * operational action, or the operator the audit trail, is the relaxation the
+   * `AGENTS.md` invariant forbids.
+   */
+  it("keeps the audit role out of operational wallet access", () => {
+    const encarregado: Actor = {
+      ...analyst,
+      id: "human-dpo",
+      subject: "dpo-subject",
+      roles: ["ENCARREGADO_LGPD"],
+    };
+
+    expect(authorize(encarregado, "wallet-a", "READ_AUDIT")).toEqual({
+      allowed: true,
+    });
+    expect(authorize(encarregado, "wallet-a", "READ_DOSSIER")).toEqual({
+      allowed: false,
+    });
+    expect(authorize(encarregado, "wallet-a", "READ_ACTIONABLE")).toEqual({
+      allowed: false,
+    });
+  });
+
+  it("keeps the collection operator out of the audit trail and the full dossier", () => {
+    const operador: Actor = {
+      ...analyst,
+      id: "human-operator",
+      subject: "operator-subject",
+      roles: ["OPERADOR_COBRANCA"],
+    };
+
+    expect(authorize(operador, "wallet-a", "READ_ACTIONABLE")).toEqual({
+      allowed: true,
+    });
+    expect(authorize(operador, "wallet-a", "READ_AUDIT")).toEqual({
+      allowed: false,
+    });
+    expect(authorize(operador, "wallet-a", "READ_DOSSIER")).toEqual({
+      allowed: false,
+    });
+  });
+
   it.each([
     ["HUMAN", analyst],
     [
