@@ -279,3 +279,68 @@ unexpected layout fails loudly) and F-4 (block separator heuristic).
 
 Next: Task 5 — identity resolution, which already has `mask.ts` and the
 homonym/shared-mask fixtures waiting for it.
+
+---
+
+Task 5: CLOSED (commits `7d0c3a3..` + the resolver commits). Suite: 243 tests,
+0 failures, 0 skipped. Lint, typecheck and contract generation exit 0.
+
+**Abstention is the load-bearing behaviour**, per explicit user acceptance
+criterion. When two mask-compatible records score within `ambiguityMargin` of
+each other the answer is `AMBIGUO` with `selected: null` and `isFact: false`.
+The mask cannot discriminate — 10^5 CPFs share a fragment — so if the name
+cannot either, choosing the better guess manufactures a fact about a person and
+is wrong half the time. Proven twice: against inline records and against the
+Excel-produced fixture end to end, where the shared mask genuinely holds two
+people named JOSE SANTOS.
+
+Modules: `identity/normalize.ts` (accent/case folding, connectives dropped so
+"JOSÉ DA SILVA" is two tokens), `identity/policy.ts` (weights, thresholds and
+margin, declarative and versioned as `2026-07-A`), `identity/resolver.ts`.
+
+Expected values were calculated by hand before implementation; the table lives
+in `resolver.test.ts`. Weights: `todos_os_tokens_presentes` 0.25,
+`primeiro_token_coincide` 0.25, `ultimo_token_coincide` 0.20,
+`ordem_preservada` 0.05, `completude` 0.25 × ratio. Gate: completude < 0.60
+rejects outright. Thresholds: CONFIRMADO ≥ 0.95, PROVAVEL ≥ 0.75, POSSIVEL ≥
+0.55.
+
+The completeness gate is what kills the documented trap: the source matches
+tokens with no notion of position, so "Jose Santos" returns `MARIA JOSE ALVES
+PEREIRA SOARES SANTOS` (2/6) and "Ana" returns `ROGERIO SANT ANA DA SILVA`
+(1/4). Both refused before any tie-break is considered.
+
+Design decision taken during GREEN: **a gate-refused record reports confidence
+0, not its raw total.** The homonym's contributions sum to 0.5833, and a
+consumer thresholding on confidence would read that as a middling match rather
+than a refusal. The individual contributions stay in `rules`, so the
+explanation still says what matched. Only `CONFIRMADO` sets `isFact`.
+
+Mutation matrix: best-guess instead of abstention fails 2; removing the
+completeness gate fails 3; letting `PROVAVEL` count as a fact fails 1.
+
+Earlier in the same session, by user direction:
+
+- **`1,2` accepted.** The two-decimal requirement belongs to
+  `Money.fromDecimalString`, where reais and cents are genuinely ambiguous, and
+  was being enforced a layer early in the spreadsheet normalizer, where a
+  column documented in reais is not ambiguous. `"1234.5"` is still refused by
+  the constructor; a test ties both layers so the asymmetry is not "fixed"
+  later. ADR 023 updated.
+- **F-4 failure mode pinned.** A mis-split may cost a block its provenance, but
+  no block ever inherits the filters of the block above it. A missing
+  provenance is a gap; an inherited one is a false claim about which query
+  produced those rows. Making a split block carry the previous preamble fails 2
+  tests.
+- **`AGENTS.md` rebuilt** (commit `db45802`): commands filled in and every one
+  of them run before being written down, working mode corrected to inline with
+  the subagent history and its rationale recorded, sources corrected to PGFN
+  only, the three orphan paragraphs promoted into Invariantes, ADR index moved
+  to `docs/decisions/README.md`. 163 lines against the previous 178, carrying
+  more content, still above the file's own ~150 budget.
+- `test:unit` and `test:integration` scripts added, because the suite silently
+  required Docker: 215 unit tests run without it, 2 integration tests need it.
+
+Next: Task 6 — observations, coverage and dossier composition, which consumes
+this resolver and must propagate `AMBIGUO` and `PROVAVEL` as non-facts all the
+way into the snapshot.
