@@ -99,6 +99,10 @@ export function foldHeader(raw: string): string {
     .toLowerCase();
 }
 
+const DECLARED_HEADERS: ReadonlySet<string> = new Set(
+  WALLET_COLUMNS.map((column) => column.header),
+);
+
 export interface InvalidWalletHeaderError extends Error {
   readonly expected: readonly string[];
   readonly found: readonly string[];
@@ -117,16 +121,24 @@ export function isInvalidHeaderError(
 
 /**
  * A header cell is echoed back to the operator only if it looks like a column
- * name. The commonest mistake is exporting without the header row, which makes
- * the first line of **data** the header — and repeating that verbatim would
- * print somebody's CPF and name onto the screen, and from there into any log
- * of it. An unrecognisable cell is counted, never quoted.
+ * name and nothing else. The commonest mistake is exporting without the header
+ * row, which makes the first line of **data** the header — and repeating that
+ * verbatim would print somebody's CPF and name onto the screen, and from there
+ * into any log of it.
+ *
+ * **A single token, no spaces.** That rule is what separates `documento` from
+ * `jose da silva`: a person's name is several words, a column name is one. It
+ * costs the operator nothing — a header written `id externo` shows as
+ * unrecognised, and the list of what was expected still says exactly which
+ * column was missing. An unrecognisable cell is counted, never quoted.
  */
-const COLUMN_NAME = /^[a-z][a-z0-9 _-]{0,29}$/;
+const COLUMN_NAME = /^[a-z][a-z0-9_]{0,29}$/;
 
 function safeHeaderName(raw: string): string {
   const folded = foldHeader(raw);
-  return COLUMN_NAME.test(folded) ? folded : "(coluna não reconhecida)";
+  return COLUMN_NAME.test(folded) || DECLARED_HEADERS.has(folded)
+    ? folded
+    : "(coluna não reconhecida)";
 }
 
 function invalidHeader(

@@ -94,13 +94,20 @@ describe("when the header does not match", () => {
     }
 
     if (!isInvalidHeaderError(error)) throw new Error("EXPECTED_HEADER_ERROR");
-    const shown = error.found.join(" ");
+    // Compared case-insensitively: the cells are folded to lower case before
+    // they are considered, so asserting only the upper-case form would pass
+    // while the name went out in lower case.
+    const shown = error.found.join(" ").toLowerCase();
     expect(shown).not.toContain("529982247");
     expect(shown).not.toContain("529.982.247-25");
     expect(shown).not.toContain("982247");
-    // The name of a real person is not echoed either.
-    expect(shown).not.toContain("JOSE DA SILVA");
+    expect(shown).not.toContain("jose");
+    expect(shown).not.toContain("silva");
+    expect(shown).not.toContain("tit-001");
     expect(error.found.length).toBe(5);
+    expect(new Set(error.found)).toEqual(
+      new Set(["(coluna não reconhecida)"]),
+    );
   });
 
   it("keeps a column name it does recognise, so the operator can see the shape", () => {
