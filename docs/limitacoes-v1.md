@@ -34,8 +34,8 @@ do risco desta lista.
 
 | # | Severidade | O que é | Por que não alcançável hoje | Gatilho para fechar |
 |---|---|---|---|---|
-| I-4 | Important | Seis guardas de runtime não têm teste que falhe quando removidas, contra o ADR 019: `AUTHORIZED_OPERATION_REQUIRED`, `OPERATION_PRINCIPAL_MISMATCH`, `OPERATION_CONTEXT_IDENTITY_MISMATCH`, `SYSTEM_INGESTION_CAPABILITY_REQUIRED`, `AUTHORIZED_WALLET_CONTEXT_REQUIRED`, `INVALID_TENANT_CONTEXT`. O pós-filtro `containsDebtor` em `authorize-actor.ts:308-314` também não tem cobertura. | **Reconferido na leitura final de 2026-07-31 e ainda aberto:** cada um dos seis códigos aparece em exatamente um arquivo de produção e em nenhum arquivo de teste. As guardas existem e funcionam; o que falta é a prova de que continuam existindo, e essa prova é escrita como teste, não como leitura. O risco é de regressão futura, não de furo atual. | O gatilho declarado — a revisão final antes da entrega — **disparou agora**, e o item entra na entrega em aberto por decisão de escopo, não por não ter sido reconferido. Fecha com seis testes de remoção, um por guarda, mais um para `containsDebtor`. |
-| M-1 | Menor | Regra ESLint em `eslint.config.mjs:25` proíbe importar `issueAuthenticatedActor` de `@panella/domain` — símbolo que não existe em lugar nenhum do repositório. Regra que nunca dispara produz confiança falsa. | Não protege nada, então não há o que furar: a regra não tem alvo, e por isso nem passa a proteger nem passa a atrapalhar com a chegada da superfície HTTP. | Junto de M-3, que lhe daria um alvo real. |
+| I-4 | Important | **Reduzido de sete itens para dois em 2026-07-31.** Cinco das seis guardas e o pós-filtro `containsDebtor` ganharam teste de remoção — ver a seção de fechados. Restam **`OPERATION_CONTEXT_IDENTITY_MISMATCH`** (`tenant-repository.ts:63`) e **`AUTHORIZED_WALLET_CONTEXT_REQUIRED`** (`authorize-actor.ts:56`) sem teste que falhe quando removidas. | **As duas são vazias por construção, e é por isso que nenhum teste as derruba.** `OPERATION_CONTEXT_IDENTITY_MISMATCH` compara `operation.context.actor` com `operation.identity.actor`; existe **um único** emissor de `AuthorizedOperation` (`issueAuthorizedOperation`), que monta a operação com a mesma `identity` e com `createTenantContext(identity.actor)` — a mesma referência dos dois lados —, e só objetos registrados no `WeakSet` do emissor passam pela barreira anterior. `AUTHORIZED_WALLET_CONTEXT_REQUIRED` é lançada por uma função **privada de módulo**, com um único chamador, sobre um contexto criado na linha imediatamente acima. Nenhum caminho de chamada consegue apresentar um valor que faça qualquer uma das duas disparar. **Nenhuma das duas está quebrada:** conferido que `authorize()` tem um único ponto de chamada e nunca decide a partir de `context.actor`, e que `context.actor` só alimenta validação de tenant e o `actorId` da auditoria. | **Decisão de desenho, não teste a escrever.** Ou a guarda vazia sai — código morto também é garantia falsa —, ou a fronteira muda para que um contexto/operação de fora possa de fato chegar até ela, e aí o teste passa a existir. Escrever "teste" para uma condição que o código não consegue produzir seria fabricar a prova, que é exatamente o defeito que o I-4 nomeia. |
+| M-1 | Menor | Regra ESLint em `eslint.config.mjs:35-40` proíbe importar `issueAuthenticatedActor` de `@panella/domain` — símbolo que não existe em lugar nenhum do repositório. Regra que nunca dispara produz confiança falsa. | Não protege nada, então não há o que furar: a regra não tem alvo, e por isso nem passa a proteger nem passa a atrapalhar com a chegada da superfície HTTP. | Junto de M-3, que lhe daria um alvo real. |
 | M-2 | Menor | `web` e `worker` não definem `NODE_ENV` no `docker-compose.yml`, e o `DevInsecureIdentityProvider` decide falhar fechado com base nessa variável. A garantia depende de valor indefinido. | `undefined !== "development"`, então o comportamento atual é o seguro: nenhum principal é emitido. O defeito é depender de acidente em vez de declaração. | Primeiro serviço que precise realmente subir com identidade de desenvolvimento. |
 | M-3 | Menor | `createTenantContext` é exportado no barrel do domínio, contra o ADR 020 (`TenantContext` é detalhe interno e nunca porta pública). Consumidor legítimo único é `authorize-actor.ts`. | **Agora existem portas públicas, e o símbolo continua exportado** — o que não mudou é que nenhuma delas o chama: as rotas trabalham com `VerifiedPrincipal` e `AuthorizedOperation`, e o contexto de tenant só é montado dentro da autorização. O defeito é a porta aberta, não uma travessia que esteja acontecendo. | Fecha junto com M-1, movendo o símbolo para subpath restrito e apontando a regra morta de lint para ele. |
 | M-4 | Menor | `TransactionalTenantScopedRepository` tem construtor público sem autoridade. | Construir um sobre banco próprio não concede nada: toda leitura e escrita exige `VerifiedPrincipal` e `AuthorizedOperation`, os internos são campos `#` privados e o leitor recusa registro com `debtorId`. | Se a classe passar a guardar estado que valha por si.  |
@@ -72,3 +72,33 @@ fechado. Fica registrado para que a ausência não seja lida como esquecimento.
 | # | O que era | Como fechou |
 |---|---|---|
 | I-3 | `mapVerifiedKeycloakActor` e `authorizeOperation` recebiam o repositório de identidade como parâmetro do chamador, então `tenantId` e `roles` vinham do objeto passado. O gatilho declarado era a primeira rota que montasse esses argumentos a partir de dados de requisição. | A rota chegou e **não** virou bypass. Toda dependência que decide quem é o chamador — provedor de identidade, repositório de identidade, repositório de autorização — é fixada na construção do roteador e não é escolhível por requisição. O teste que prende isso usa um repositório que devolve `tenant-b` contra uma carteira de `tenant-a` e exige 403: se a requisição pudesse escolher o repositório, ele passaria (`apps/web/src/http/router.test.ts`). |
+
+### I-4, a parte que fechou
+
+Cinco guardas e o pós-filtro ganharam teste de remoção em 2026-07-31. Cada
+mutação derruba **exatamente um** teste nomeado, e nenhum outro — a suíte tem
+534 unitários, então "derrubou um" é afirmação forte e não coincidência.
+
+| Guarda removida | Teste que falha | Onde |
+|---|---|---|
+| `AUTHORIZED_OPERATION_REQUIRED` | *refuses an operation the issuer never issued* | `packages/application/src/authorize-actor.test.ts` |
+| `OPERATION_PRINCIPAL_MISMATCH` | *refuses an operation issued to a different principal* | `packages/adapters/src/repositories/tenant-repository.test.ts` |
+| `SYSTEM_INGESTION_CAPABILITY_REQUIRED` | *refuses source ingestion to an actor that is not a system worker* | idem |
+| `INVALID_TENANT_CONTEXT` | *refuses a registered context whose actor no longer agrees on the tenant* | `packages/domain/src/authorization.test.ts` |
+| pós-filtro `containsDebtor` | *does not answer with an observation whose debtor the wallet does not hold* | `packages/application/src/authorize-actor.test.ts` |
+
+Os casos usam principals e operações **genuínas**, emitidas pelo emissor real.
+Forjar a entrada faria a chamada morrer numa guarda anterior, e o teste passaria
+pelo motivo errado — verde por acidente é o que o ADR 019 existe para evitar.
+
+Dois deles precisaram de um caminho que não é óbvio:
+
+- **`INVALID_TENANT_CONTEXT`** só é alcançável porque `createTenantContext`
+  guarda a referência do ator do chamador em vez de cloná-la, e congelar o
+  contexto não congela o objeto para onde ele aponta. O teste registra um ator
+  mutável, muda o `tenantId` dele depois, e a guarda pega. Vale notar que o
+  caminho existe por causa do defeito M-3: `createTenantContext` está exportado
+  no barrel do domínio.
+- **`containsDebtor`** exigia provar que o filtro *filtra*, e não que a leitura
+  foi evitada antes. O teste afirma que `observations.find` **foi** chamado e
+  ainda assim a resposta é `null`.
