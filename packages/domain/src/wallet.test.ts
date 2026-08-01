@@ -91,6 +91,67 @@ describe("validateTitleRow", () => {
     expect(result).toMatchObject({ reason: "VENCIMENTO_INVALIDO" });
   });
 
+  /**
+   * A Brazilian ERP exporting CSV writes `15/09/2026`, and refusing it made the
+   * screen contradict itself: it *displays* `15/06/2026` and used to *reject*
+   * `15/06/2026` on the way in. Both forms are accepted now; the domain still
+   * carries a `Date`, and the day/month order is the Brazilian one, which is
+   * the order the rest of this system reads and writes.
+   */
+  describe.each([
+    ["15/09/2026", Date.UTC(2026, 8, 15)],
+    ["01/12/2026", Date.UTC(2026, 11, 1)],
+    // One digit is not ambiguous, only untidy, and an ERP emits it.
+    ["1/9/2026", Date.UTC(2026, 8, 1)],
+    ["  10/03/2026  ", Date.UTC(2026, 2, 10)],
+    // The form that always worked keeps working.
+    ["2026-03-10", Date.UTC(2026, 2, 10)],
+  ])("accepts %s as a due date", (dueDate, expected) => {
+    it("and carries the calendar day the operator meant", () => {
+      const result = validateTitleRow({ ...validRow, dueDate }, 10);
+
+      if (result.status !== "ACEITO") throw new Error("EXPECTED_ACCEPTED_ROW");
+      expect(result.dueDate.getTime()).toBe(expected);
+    });
+  });
+
+  describe.each([
+    // Month 13: an American export, and the only honest answer is to refuse.
+    ["04/13/2026"],
+    // 31 September does not exist; rolling it into October would invent a date.
+    ["31/09/2026"],
+    // Two-digit year: 26 could be 1926 or 2026, and guessing a century on a
+    // due date is guessing whether a debt is prescribed.
+    ["15/09/26"],
+    ["15/09"],
+    ["15-09-2026"],
+    ["2026/09/15"],
+    ["ontem"],
+    [""],
+  ])("quarantines %s", (dueDate) => {
+    it("instead of guessing what it meant", () => {
+      const result = validateTitleRow({ ...validRow, dueDate }, 11);
+
+      expect(result).toMatchObject({ reason: "VENCIMENTO_INVALIDO" });
+    });
+  });
+
+  it("quarantines only the offending line, never the file", () => {
+    // The rows are validated one at a time, so a single bad date costs one
+    // line. This is the property the import screen depends on.
+    const rows = [
+      validateTitleRow({ ...validRow, dueDate: "15/09/2026" }, 2),
+      validateTitleRow({ ...validRow, dueDate: "04/13/2026" }, 3),
+      validateTitleRow({ ...validRow, dueDate: "2026-10-01" }, 4),
+    ];
+
+    expect(rows.map((row) => row.status)).toEqual([
+      "ACEITO",
+      "QUARENTENA",
+      "ACEITO",
+    ]);
+  });
+
   it("reports the first failing field only, so one row yields one reason", () => {
     const result = validateTitleRow(
       { externalId: "", name: "", cpf: "nope", amount: "x", dueDate: "x" },
