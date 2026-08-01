@@ -60,9 +60,11 @@ function assertOperation(
     throw new Error("OPERATION_PRINCIPAL_MISMATCH");
   }
   assertTenantContext(operation.context);
-  if (operation.context.actor !== operation.identity.actor) {
-    throw new Error("OPERATION_CONTEXT_IDENTITY_MISMATCH");
-  }
+  // No check that `operation.context.actor` is `operation.identity.actor`: the
+  // single issuer builds both from the same reference, so a mismatch is not
+  // representable. The guard that used to stand here could not be dropped by
+  // any test, which makes it a guarantee nobody had checked. What replaced it
+  // is the single-issuer assertion in `authorize-actor.test.ts` — ADR 026.
   if (operation.action !== requiredAction) {
     throw new Error("OPERATION_ACTION_FORBIDDEN");
   }

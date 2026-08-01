@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DevInsecureIdentityProvider } from "../../adapters/src/identity-middleware.js";
@@ -335,5 +336,106 @@ describe("readAuthorizedObservation wallet containment", () => {
         { find: async () => ({ debtorId: "debtor-a" }) },
       ),
     ).resolves.toEqual({ debtorId: "debtor-a" });
+  });
+});
+
+/**
+ * The invariant two deleted guards used to assert at runtime.
+ *
+ * `OPERATION_CONTEXT_IDENTITY_MISMATCH` and `AUTHORIZED_WALLET_CONTEXT_REQUIRED`
+ * were unreachable: no caller could produce a value that made either fire. A
+ * guard no test can drop is a guarantee nobody has checked, and writing a
+ * "test" for a condition the code cannot produce would fabricate the proof.
+ *
+ * So the guards are gone and what made them unreachable is asserted instead:
+ * **there is exactly one issuer of `AuthorizedOperation`, and it builds the
+ * context and the identity from the same reference.** Add a second issuer, or
+ * make the single one derive the context from anything but the identity it
+ * carries, and these fail — which is the signal that the guards have to come
+ * back. See ADR 026.
+ */
+describe("the single issuer of AuthorizedOperation", () => {
+  const source = readFileSync(
+    new URL("./authorize-actor.ts", import.meta.url),
+    "utf8",
+  );
+
+  function occurrences(needle: string): number {
+    return source.split(needle).length - 1;
+  }
+
+  it("constructs an authorized operation in exactly one place", () => {
+    // A second construction site is a second issuer, and the moment one exists
+    // an operation can arrive whose context was never derived from its
+    // identity — which is precisely what the deleted guard checked for.
+    expect(occurrences("new RuntimeAuthorizedOperation(")).toBe(1);
+  });
+
+  it("registers an operation as issued in exactly one place", () => {
+    // The `WeakSet` is the barrier `assertAuthorizedOperation` reads. Adding to
+    // it anywhere else would let an unissued operation pass as issued.
+    expect(occurrences("authorizedOperations.add(")).toBe(1);
+  });
+
+  it("derives the operation's context from the identity it carries", () => {
+    // Same reference on both sides, which is what makes a mismatch between
+    // `operation.context.actor` and `operation.identity.actor` unrepresentable.
+    expect(source).toContain("createTenantContext(identity.actor)");
+    expect(occurrences("createTenantContext(")).toBe(2);
+  });
+
+  it("issues operations whose context and identity are the same actor", async () => {
+    const identity = await authenticatedAgent();
+    const repository = new WalletRepositoryFixture(
+      [{ id: "wallet-a", tenantId: "tenant-a", cpfIndexes: [] }],
+      [{
+        actorId: "agent-a",
+        tenantId: "tenant-a",
+        walletId: "wallet-a",
+        actions: ["READ_DOSSIER", "READ_ACTIONABLE", "READ_AUDIT", "IMPORT_WALLET"],
+      }],
+    );
+
+    for (const action of [
+      "READ_DOSSIER",
+      "READ_ACTIONABLE",
+      "READ_AUDIT",
+      "IMPORT_WALLET",
+    ] as const) {
+      const operation = await authorizeOperation(
+        identity,
+        "wallet-a",
+        action,
+        repository,
+      );
+
+      // Object identity, not equality: the deleted guard compared references.
+      expect(operation?.context.actor).toBe(operation?.identity.actor);
+      expect(operation?.identity).toBe(identity);
+    }
+  });
+
+  it("builds every wallet context from the caller's own identity", () => {
+    const calls = [
+      ...source.matchAll(/createAuthorizedWalletContext\(([^)]*)\)/g),
+    ]
+      .map((match) => match[1].trim())
+      // Drops the declaration, whose parameter list is annotated with a type.
+      .filter((argument) => argument !== "" && !argument.includes(":"));
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect([...new Set(calls)]).toEqual(["identity"]);
+  });
+
+  it("lets no wallet context in through an exported function", () => {
+    // The other deleted guard, `AUTHORIZED_WALLET_CONTEXT_REQUIRED`, protected
+    // a module-private function from a foreign context. Private functions do
+    // pass one along — `actorWithRuntimeGrant` takes it — and that is safe
+    // exactly while no context can enter from outside. Export a function that
+    // accepts one and a caller can hand over a context this module never
+    // built, which is when the guard becomes necessary again.
+    expect(source).not.toMatch(
+      /export\s+(?:async\s+)?function\s+[A-Za-z]+\([^)]*:\s*AuthorizedWalletContext/,
+    );
   });
 });

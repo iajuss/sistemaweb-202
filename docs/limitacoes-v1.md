@@ -2,15 +2,15 @@
 
 Lista de pendências conhecidas e assumidas. Cada item traz **o que é**, **por
 que não é alcançável hoje** e **o que dispara a necessidade de fechar**.
-Revisada item a item na leitura final de entrega, em 2026-07-31.
+Revisada item a item na leitura final de entrega, em 2026-08-01.
 
 **A superfície HTTP existe agora**, e com ela caiu o motivo que boa parte desta
 lista dava para não ser exercitável. Versões anteriores deste documento diziam
 que nenhum item era alcançável porque não havia rota; isso deixou de ser
-verdade quando as três rotas de API e as duas telas entraram no ar. Cada linha
+verdade quando as três rotas de API e as três telas entraram no ar. Cada linha
 abaixo declara o motivo que vale **hoje**, não o motivo que valia antes de a
-superfície existir — e um item mudou de estado por causa disso (I-3, agora
-fechado, registrado no fim do documento).
+superfície existir — e dois itens mudaram de estado por causa disso (I-3 e I-4,
+agora fechados, registrados no fim do documento).
 
 O que **não** mudou é o bloqueio de produção: fora de `NODE_ENV=development`
 nenhuma `VerifiedPrincipal` é emitida, em nenhuma chamada, então o servidor não
@@ -34,7 +34,6 @@ do risco desta lista.
 
 | # | Severidade | O que é | Por que não alcançável hoje | Gatilho para fechar |
 |---|---|---|---|---|
-| I-4 | Important | **Reduzido de sete itens para dois em 2026-07-31.** Cinco das seis guardas e o pós-filtro `containsDebtor` ganharam teste de remoção — ver a seção de fechados. Restam **`OPERATION_CONTEXT_IDENTITY_MISMATCH`** (`tenant-repository.ts:63`) e **`AUTHORIZED_WALLET_CONTEXT_REQUIRED`** (`authorize-actor.ts:56`) sem teste que falhe quando removidas. | **As duas são vazias por construção, e é por isso que nenhum teste as derruba.** `OPERATION_CONTEXT_IDENTITY_MISMATCH` compara `operation.context.actor` com `operation.identity.actor`; existe **um único** emissor de `AuthorizedOperation` (`issueAuthorizedOperation`), que monta a operação com a mesma `identity` e com `createTenantContext(identity.actor)` — a mesma referência dos dois lados —, e só objetos registrados no `WeakSet` do emissor passam pela barreira anterior. `AUTHORIZED_WALLET_CONTEXT_REQUIRED` é lançada por uma função **privada de módulo**, com um único chamador, sobre um contexto criado na linha imediatamente acima. Nenhum caminho de chamada consegue apresentar um valor que faça qualquer uma das duas disparar. **Nenhuma das duas está quebrada:** conferido que `authorize()` tem um único ponto de chamada e nunca decide a partir de `context.actor`, e que `context.actor` só alimenta validação de tenant e o `actorId` da auditoria. | **Decisão de desenho, não teste a escrever.** Ou a guarda vazia sai — código morto também é garantia falsa —, ou a fronteira muda para que um contexto/operação de fora possa de fato chegar até ela, e aí o teste passa a existir. Escrever "teste" para uma condição que o código não consegue produzir seria fabricar a prova, que é exatamente o defeito que o I-4 nomeia. |
 | M-1 | Menor | Regra ESLint em `eslint.config.mjs:35-40` proíbe importar `issueAuthenticatedActor` de `@panella/domain` — símbolo que não existe em lugar nenhum do repositório. Regra que nunca dispara produz confiança falsa. | Não protege nada, então não há o que furar: a regra não tem alvo, e por isso nem passa a proteger nem passa a atrapalhar com a chegada da superfície HTTP. | Junto de M-3, que lhe daria um alvo real. |
 | M-2 | Menor | `web` e `worker` não definem `NODE_ENV` no `docker-compose.yml`, e o `DevInsecureIdentityProvider` decide falhar fechado com base nessa variável. A garantia depende de valor indefinido. | `undefined !== "development"`, então o comportamento atual é o seguro: nenhum principal é emitido. O defeito é depender de acidente em vez de declaração. | Primeiro serviço que precise realmente subir com identidade de desenvolvimento. |
 | M-3 | Menor | `createTenantContext` é exportado no barrel do domínio, contra o ADR 020 (`TenantContext` é detalhe interno e nunca porta pública). Consumidor legítimo único é `authorize-actor.ts`. | **Agora existem portas públicas, e o símbolo continua exportado** — o que não mudou é que nenhuma delas o chama: as rotas trabalham com `VerifiedPrincipal` e `AuthorizedOperation`, e o contexto de tenant só é montado dentro da autorização. O defeito é a porta aberta, não uma travessia que esteja acontecendo. | Fecha junto com M-1, movendo o símbolo para subpath restrito e apontando a regra morta de lint para ele. |
@@ -66,18 +65,24 @@ do risco desta lista.
 
 ## Fechadas, guardadas aqui para o histórico
 
-Um item saiu desta lista porque o gatilho dele disparou e ele foi de fato
-fechado. Fica registrado para que a ausência não seja lida como esquecimento.
+Dois itens saíram desta lista porque o gatilho deles disparou e eles foram de
+fato fechados. Ficam registrados para que a ausência não seja lida como
+esquecimento.
 
 | # | O que era | Como fechou |
 |---|---|---|
+| I-4 | Sete guardas de runtime sem teste que falhasse quando removidas. Cinco e o pós-filtro `containsDebtor` ganharam teste de remoção em 2026-07-31; restaram duas que **nenhum teste conseguia derrubar por serem vazias por construção**. | As duas saíram, e no lugar delas ficou o invariante que as tornava inalcançáveis: **emissor único de `AuthorizedOperation`, montando contexto e identidade da mesma referência**. Seis testes em `authorize-actor.test.ts`, três deles conferidos por mutação — um segundo emissor, um contexto montado de uma cópia do ator, e uma função exportada aceitando `AuthorizedWalletContext` derrubam exatamente o teste que os nomeia. Quem quebrar o invariante recebe do teste o recado de que a guarda voltou a ser necessária ([ADR 026](decisions/026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md)). |
 | I-3 | `mapVerifiedKeycloakActor` e `authorizeOperation` recebiam o repositório de identidade como parâmetro do chamador, então `tenantId` e `roles` vinham do objeto passado. O gatilho declarado era a primeira rota que montasse esses argumentos a partir de dados de requisição. | A rota chegou e **não** virou bypass. Toda dependência que decide quem é o chamador — provedor de identidade, repositório de identidade, repositório de autorização — é fixada na construção do roteador e não é escolhível por requisição. O teste que prende isso usa um repositório que devolve `tenant-b` contra uma carteira de `tenant-a` e exige 403: se a requisição pudesse escolher o repositório, ele passaria (`apps/web/src/http/router.test.ts`). |
 
-### I-4, a parte que fechou
+### I-4, como fechou por inteiro
 
-Cinco guardas e o pós-filtro ganharam teste de remoção em 2026-07-31. Cada
-mutação derruba **exatamente um** teste nomeado, e nenhum outro — a suíte tem
-534 unitários, então "derrubou um" é afirmação forte e não coincidência.
+Em duas passagens, e por dois caminhos diferentes, porque as guardas não eram
+todas do mesmo tipo.
+
+**Primeira passagem, 2026-07-31: as alcançáveis.** Cinco guardas e o pós-filtro
+ganharam teste de remoção. Cada mutação derruba **exatamente um** teste nomeado,
+e nenhum outro — a suíte tem 578 unitários, então "derrubou um" é afirmação
+forte e não coincidência.
 
 | Guarda removida | Teste que falha | Onde |
 |---|---|---|
@@ -102,3 +107,29 @@ Dois deles precisaram de um caminho que não é óbvio:
 - **`containsDebtor`** exigia provar que o filtro *filtra*, e não que a leitura
   foi evitada antes. O teste afirma que `observations.find` **foi** chamado e
   ainda assim a resposta é `null`.
+
+**Segunda passagem, 2026-08-01: as duas vazias por construção.**
+`OPERATION_CONTEXT_IDENTITY_MISMATCH` e `AUTHORIZED_WALLET_CONTEXT_REQUIRED`
+foram **removidas**. Nenhum caminho de chamada conseguia produzir a condição que
+elas testavam, e escrever um "teste" forjando a entrada faria a chamada morrer
+numa guarda anterior — o teste passaria sem alcançar a condição, provando o
+contrário do que afirmasse.
+
+No lugar delas ficou o invariante que as tornava inalcançáveis, afirmado em seis
+testes: **um único emissor de `AuthorizedOperation`, que monta contexto e
+identidade da mesma referência**, e **nenhuma função exportada aceitando um
+`AuthorizedWalletContext`**. Três mutações foram executadas para provar que os
+testes prendem alguma coisa:
+
+| Mutação | Teste que cai |
+|---|---|
+| um segundo `new RuntimeAuthorizedOperation(...)` | *constructs an authorized operation in exactly one place* |
+| contexto montado de uma cópia do ator (`{ ...identity.actor }`) | *issues operations whose context and identity are the same actor* |
+| uma função exportada recebendo `AuthorizedWalletContext` | *lets no wallet context in through an exported function* |
+
+O raciocínio inteiro, com as alternativas descartadas, está no
+[ADR 026](decisions/026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md).
+Vale o registro de que funções **privadas** do módulo continuam recebendo o
+contexto — `actorWithRuntimeGrant` recebe um —, e isso é seguro exatamente
+enquanto nenhum contexto puder entrar de fora: a fronteira que importa é a
+exportada.

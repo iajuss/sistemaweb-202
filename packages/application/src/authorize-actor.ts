@@ -26,36 +26,24 @@ class RuntimeAuthorizedWalletContext implements AuthorizedWalletContext {
     assertAuthenticatedIdentity(identity);
     this.#tenantContext = createTenantContext(identity.actor);
     Object.freeze(this);
-    authorizedWalletContexts.add(this);
   }
 
   public get tenantId(): string {
     return this.#tenantContext.tenantId;
   }
-
-  public assertPrivateState(): void {
-    void this.#tenantContext;
-  }
 }
 
-const authorizedWalletContexts = new WeakSet<AuthorizedWalletContext>();
-
+/**
+ * The only producer of a wallet context, and it takes the caller's identity —
+ * never a context. A context therefore cannot arrive from outside this module,
+ * which is why the `AUTHORIZED_WALLET_CONTEXT_REQUIRED` guard that used to sit
+ * below was unreachable and has been removed. The property that keeps it
+ * unnecessary is asserted in `authorize-actor.test.ts`. See ADR 026.
+ */
 function createAuthorizedWalletContext(
   identity: AuthenticatedIdentity,
 ): AuthorizedWalletContext {
   return new RuntimeAuthorizedWalletContext(identity);
-}
-
-function assertAuthorizedWalletContext(
-  context: AuthorizedWalletContext,
-): void {
-  if (
-    !authorizedWalletContexts.has(context) ||
-    !(context instanceof RuntimeAuthorizedWalletContext)
-  ) {
-    throw new Error("AUTHORIZED_WALLET_CONTEXT_REQUIRED");
-  }
-  context.assertPrivateState();
 }
 
 export interface WalletAuthorizationRepository {
@@ -219,7 +207,6 @@ export async function authorizeActor(
 ): Promise<AuthorizationDecision> {
   assertAuthenticatedIdentity(identity);
   const walletContext = createAuthorizedWalletContext(identity);
-  assertAuthorizedWalletContext(walletContext);
   const wallet = await repository.findWallet(walletContext, walletId);
   if (!wallet || wallet.tenantId !== walletContext.tenantId) {
     return { allowed: false };

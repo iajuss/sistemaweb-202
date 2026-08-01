@@ -34,6 +34,7 @@ consequências mora aqui.
 | [023](023-precisao-excedente-em-valor-publicado.md) | Precisão excedente: carteira quarentena, fonte publicada arredonda com rastro |
 | [024](024-ui-servida-pelo-mesmo-roteador-sem-framework.md) | UI no mesmo roteador, sem framework; audiência derivada da concessão |
 | [025](025-versao-de-politica-identifica-comportamento.md) | Versão de política identifica comportamento, não intenção |
+| [026](026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md) | Guarda inalcançável sai; o invariante de emissor único fica no lugar |
 
 ## Escrevendo um ADR novo
 
