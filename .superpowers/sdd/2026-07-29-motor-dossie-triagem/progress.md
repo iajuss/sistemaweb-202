@@ -1637,3 +1637,74 @@ deriva. As três telas conferidas rodando contra o Compose real.
 ## Pendências intocadas, por instrução
 
 I-2, M-1, M-3, P-1 e C-1.
+
+---
+
+# Sessão de fechamento, segunda passagem — 2026-08-01
+
+Disparada por uma pergunta simples do dono do repositório: *"caso alguém queira
+upar uma nova planilha, ela conseguiria?"* Testar em vez de responder de cabeça
+achou dois defeitos e um vazamento.
+
+## O que a investigação achou
+
+**A fila mentia.** A tela de prioridades servia o array calculado na semeadura,
+então uma carteira importada pela tela não mudava nada nela. Aceita a
+importação, "2 títulos criados", fila igual — a conclusão razoável é que a
+importação falhou. Não era detalhe de demonstração: é a primeira tela que
+qualquer pessoa abre.
+
+**A data brasileira era recusada.** `15/09/2026` mandava o arquivo inteiro para
+quarentena, e um ERP brasileiro exportando CSV escreve exatamente isso. A tela
+*exibia* `15/06/2026` e *recusava* `15/06/2026`.
+
+## Item 1: fila lida da carteira
+
+Parado antes de mexer, por instrução, porque era maior do que parecia. Três
+fatos que restringiam a solução, e que só apareceram lendo o código:
+
+1. Não existe tabela de dossiê nem de classificação — dossiês vivem em memória.
+2. `composeDossierForDebtor` exige `READ_DOSSIER` (decifra CPF); a fila é
+   servida com `READ_ACTIONABLE`. Compor na fila seria escalada de privilégio.
+3. Logo, quem ninguém consultou **não tem dossiê**, e a linha não tem
+   `dossierId` — o que caía justamente no desempate do cursor keyset.
+
+Decisão do dono, com as alternativas na mesa: `dossierId` nulo e desempate por
+`id_externo`, que o banco mantém único por carteira
+(`UNIQUE (tenantId, walletId, externalId)` — conferido antes de prosseguir) e
+que a resposta e a tela já carregavam. A tabela de projeção persistida ficou
+registrada como fim de linha correto no ADR 027 e em `proximos-passos.md`.
+
+## Dois defeitos que só a execução achou
+
+**O exemplo não demonstrava nada.** `docs/exemplo-carteira.csv` reusava CPFs que
+o próprio demo semeia, então as três linhas agregavam em devedores existentes:
+"3 atualizados, 0 criados" e nenhuma linha nova na fila. Correto por desenho,
+péssimo como primeira experiência. CPFs trocados por outros fora do conjunto
+semeado, com teste que impede a colisão voltar.
+
+**Um nome de devedor vazava.** O sanitizador do relatório de cabeçalho dobrava
+as células para minúsculas e permitia espaços, então um arquivo exportado sem
+cabeçalho ecoava `jose da silva` na tela. O teste afirmava a ausência da forma
+**maiúscula** e passava enquanto a minúscula saía — teste que não prendia nada.
+Regra nova: nome de coluna é **um token**; nome de pessoa são vários.
+
+## A lição que vale para o ledger
+
+As duas passagens desta entrega acharam defeito do mesmo tipo: **fixture mais
+permissiva que a realidade**. O tema aceitava qualquer operação enquanto o
+repositório real exigia `READ_ACTIONABLE`; a asserção de ausência comparava
+maiúsculas enquanto o código emitia minúsculas. Nos dois casos a suíte estava
+verde e o sistema, quebrado.
+
+O que achou os dois foi **rodar a aplicação de verdade** e **testar em vez de
+supor**. Vale mais que mais um teste: um teste escrito com a mesma suposição do
+código herda o defeito.
+
+## Números
+
+627 unitários (eram 585), 13 de integração, lint e typecheck limpos.
+
+## Pendências intocadas, por instrução
+
+I-2, M-1, M-3, P-1 e C-1.

@@ -241,9 +241,10 @@ da fila de cobrança e vai para a de coletar mais dados.
 Feche o laço de uso: até aqui a carteira apareceu semeada por comando, e a
 pergunta óbvia de quem avalia é **como o cliente carrega a dele**.
 
-Abra `http://127.0.0.1:3000/carteiras/carteira-demo/importacoes` e envie
-`fixtures/wallet/invalid-cpf.csv` — três linhas, uma com dígito verificador que
-não fecha.
+Abra `http://127.0.0.1:3000/carteiras/carteira-demo/importacoes`. A tela declara
+as colunas exigidas e oferece o `exemplo-carteira.csv` para download — baixe e
+envie esse mesmo arquivo. São quatro linhas: duas do mesmo devedor, uma de outro
+e uma com dígito verificador que não fecha.
 
 O que apontar, na ordem em que a tela mostra:
 
@@ -259,6 +260,22 @@ O que apontar, na ordem em que a tela mostra:
 - **É o mesmo importador do passo 1.** A tela chama exatamente as funções que o
   `pnpm demo` chamou para semear, pela mesma autorização `IMPORT_WALLET`. Não
   existe um segundo caminho de importação para manter em dia.
+
+**Confirme e volte para a fila** — é o encerramento mais forte da demonstração.
+A fila ganha **dois** devedores novos, não três: duas das linhas eram do mesmo
+devedor, e uma linha é um título, não uma pessoa. As duas linhas novas aparecem
+marcadas **"sem dossiê composto"**.
+
+Vale dizer em voz alta o que essa marcação significa, porque é o desenho
+inteiro do sistema em miniatura: ninguém consultou fonte alguma sobre aquelas
+pessoas ainda, e isso **não** é a mesma coisa que as fontes não terem
+encontrado nada. É a distinção entre `NAO_CONSULTADO` e `NAO_ENCONTRADO`,
+visível na tela em vez de morrer na borda de apresentação.
+
+Se perguntarem por que a linha nova não tem link: não há dossiê para abrir
+ainda. O dossiê é composto na consulta, e compor exige `READ_DOSSIER` porque
+decifra CPF — a fila é servida a quem tem `READ_ACTIONABLE`. A tela não é o
+lugar onde essa fronteira deixa de valer.
 
 Se perguntarem por que a interface é tão simples: é decisão, e está escrita em
 [`docs/limitacoes-v1.md`](limitacoes-v1.md). O enunciado nomeia um agente de AI
@@ -284,7 +301,7 @@ Fecha com honestidade, e isso conta a favor:
   [`docs/limitacoes-v1.md`](limitacoes-v1.md), com o que cada item é, por que não
   é alcançável hoje e o que dispara o fechamento.
 
-Se perguntarem "e os testes": 585 unitários, que rodam sem Docker, e 13 de
+Se perguntarem "e os testes": 627 unitários, que rodam sem Docker, e 13 de
 integração contra o PostgreSQL real — não contra mock.
 
 ```bash

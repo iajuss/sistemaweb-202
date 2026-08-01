@@ -75,6 +75,19 @@ de `packages/domain/src/identity/resolver.test.ts`.
 | Upload truncado é recusado | Sem o delimitador de fecho, o corpo não vira carteira pela metade | `apps/web/src/http/multipart.test.ts` — *refuses a truncated upload* |
 | Formato vem dos bytes | Um XLSX é reconhecido pela assinatura zip, não pela extensão nem pelo `content-type` do navegador | `packages/adapters/src/wallet-importers/wallet-file.test.ts` |
 | Upload real por socket | `FormData` de verdade sobre `node:http`, não fixture de upload | `apps/web/src/http/server.test.ts` — bloco *the import screen answers over a socket* |
+| Data brasileira aceita | `15/09/2026` entra; `04/13/2026` e `15/09/26` vão para quarentena, uma linha por vez | `packages/domain/src/wallet.test.ts` |
+| Colunas declaradas uma vez | Um CSV montado a partir da declaração é aceito pelo parser: declaração e parser não podem divergir | `packages/adapters/src/wallet-importers/columns.test.ts` |
+| Cabeçalho ausente não vaza | Arquivo exportado sem cabeçalho vira "primeira linha de dados como cabeçalho", e nem CPF nem nome do devedor são repetidos de volta | idem — *never repeats a CPF back* |
+| Arquivo de exemplo confere | Rende 3 aceitas e 1 em quarentena, usa CPFs fora dos que o demo semeia, e é idêntico ao commitado em `docs/` | idem |
+
+## Fila de prioridades
+
+| Caso | O que prova | Onde |
+|---|---|---|
+| A fila é o que a carteira tem | Devedor importado aparece na fila sem reiniciar nada; três títulos do mesmo devedor viram uma linha | `packages/application/src/list-wallet-queue.test.ts` |
+| Sem dossiê ≠ dossiê vazio | Quem ninguém consultou aparece como `DADOS_INSUFICIENTES` com `dossierId` nulo e marcação própria na tela, sem link | idem e `apps/web/src/http/router.test.ts` |
+| Prioridade vem da política | A linha sem dossiê usa `priorities.DADOS_INSUFICIENTES`, não uma constante da tela | `list-wallet-queue.test.ts` |
+| Cursor pagina sem dossiê | Uma carteira inteira sem dossiê nenhum pagina normalmente, e o cursor não carrega id de devedor | `packages/application/src/lookup-dossier.test.ts` |
 
 ## Guardas de runtime e o invariante que as substitui
 
