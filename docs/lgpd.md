@@ -32,6 +32,8 @@ Uma linha por par fonte × finalidade. A matriz de fontes correspondente está e
 | PGFN Lista de Devedores | Mesma verificação, universo distinto, sob os filtros do export | Idem | CTN art. 198, § 3º, II; LGPD art. 7º, IX | A validar |
 | QSA/RFB | Contexto societário, sem peso na classificação (ADR 012) | Legítimo interesse sobre registro empresarial público | LGPD art. 7º, IX | Mapeada, não integrada |
 | Portal da Transparência (CEIS/CEAF) | Sanção administrativa publicada | Publicidade obrigatória de sanção | Lei 12.846/2013; LAI; LGPD art. 7º, IX | Mapeada, não integrada |
+| CENPROT | Protesto em cartório da pessoa da carteira | Publicidade do registro de protesto, com legítimo interesse na cobrança de dívida própria do cliente | Lei 9.492/1997, arts. 27 e 29; LGPD art. 7º, IX | Mapeada, não integrada |
+| DataJud | Metadado processual agregado; **não** usado para inferir perfil individual | Publicidade dos atos processuais, ressalvado o segredo de justiça | CF art. 5º, LX e art. 93, IX; Resolução CNJ 331/2020; LGPD art. 7º, IX | Mapeada, não integrada |
 | Bureaus de crédito | — | Não aplicável nesta v1 | — | Exige contrato e LIA própria |
 
 **Limites que a finalidade impõe, e que o código já obedece:**

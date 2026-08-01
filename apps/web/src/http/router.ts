@@ -488,7 +488,22 @@ export function createRouter(
       return { ok: false, response: problem(403, "IMPORTACAO_NAO_AUTORIZADA") };
     }
 
-    const theme = await themeFor(operation);
+    // The page wears the tenant's branding, and reading that configuration is
+    // an operational read: the theme repository requires a READ_ACTIONABLE
+    // operation. So the screen asks for one through the same authorization
+    // path, instead of widening what the repository accepts — an import
+    // capability is not a licence to read the wallet's surface.
+    const reading = await authorizeOperation(
+      identity,
+      walletId,
+      "READ_ACTIONABLE",
+      deps.authorization,
+    );
+    if (!reading) {
+      return { ok: false, response: problem(403, "PRIORIDADES_NAO_AUTORIZADAS") };
+    }
+
+    const theme = await themeFor(reading);
     if (!theme) {
       return { ok: false, response: problem(500, "TEMA_NAO_CONFIGURADO") };
     }

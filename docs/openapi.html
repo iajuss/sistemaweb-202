@@ -1,0 +1,879 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dossier triage contracts — contrato 1.0.0</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.6 system-ui, sans-serif; color: #1b1b1b; background: #f4f6f8; }
+header { background: #1b2b3a; color: #fff; padding: 1.5rem; }
+header h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+header p { margin: 0; opacity: .85; font-size: .9rem; }
+main { max-width: 56rem; margin: 0 auto; padding: 1.5rem; }
+h2 { font-size: 1.1rem; margin: 2rem 0 .75rem; }
+h3 { font-size: 1rem; margin: 0 0 .5rem; }
+h4 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: #55606b; margin: 1rem 0 .35rem; }
+.operacao { background: #fff; border: 1px solid #dfe4e9; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+.metodo { background: #1b2b3a; color: #fff; padding: .1rem .45rem; font-size: .8rem; letter-spacing: .05em; }
+.status { font-weight: 600; }
+.resposta { border-top: 1px solid #eef1f4; padding-top: .5rem; }
+.media { margin: .25rem 0; font-size: .85rem; color: #55606b; }
+pre { background: #f7f9fa; border: 1px solid #e6eaee; padding: .75rem; overflow-x: auto; font: .82rem/1.45 ui-monospace, monospace; }
+code { font: .9em ui-monospace, monospace; }
+.aviso { background: #fff6d9; border: 1px solid #e8d9a0; padding: 1rem 1.25rem; }
+footer { max-width: 56rem; margin: 0 auto; padding: 0 1.5rem 2rem; font-size: .85rem; color: #55606b; }
+</style>
+</head>
+<body>
+<header>
+<h1>Dossier triage contracts</h1>
+<p>OpenAPI 3.1.0 · versão 1.0.0</p>
+</header>
+<main>
+<div class="aviso">
+<p><strong>Isto é documentação de contrato. A aplicação não está publicada, e
+isso é decisão, não pendência de tempo.</strong></p>
+<p>O sistema falha fechado sem verificação de JWT/JWKS (pendência <strong>P-1</strong>):
+fora de <code>NODE_ENV=development</code> nenhuma principal verificada é emitida,
+em nenhuma chamada. Publicar a aplicação exigiria desligar essa guarda num
+sistema que decifra CPF. Um contrato estático não tem banco atrás e não decifra
+nada — por isso ele pode ser publicado e a aplicação não.</p>
+<p>Este arquivo é gerado a partir dos mesmos schemas Zod que o servidor valida
+em runtime. Contrato escrito à mão em paralelo ao código é proibido neste
+projeto: se o código muda o contrato, a diferença aparece aqui.</p>
+</div>
+
+<h2>Operações</h2>
+<section class="operacao">
+<h3><span class="metodo">POST</span> <code>/api/v1/carteiras/{walletId}/dossies/lookup</code></h3>
+<p>Compõe o dossiê do título indicado. O identificador é o id externo do título; não existe consulta por pessoa.</p>
+<h4>Parâmetros</h4><ul><li><code>walletId</code> em path — obrigatório</li></ul>
+<h4>Corpo da requisição — <code>application/json</code></h4>
+<pre>{
+  &quot;$schema&quot;: &quot;https://json-schema.org/draft/2020-12/schema&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;id_externo&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;minLength&quot;: 1
+    }
+  },
+  &quot;required&quot;: [
+    &quot;id_externo&quot;
+  ],
+  &quot;additionalProperties&quot;: false
+}</pre>
+<h4>Respostas</h4>
+<div class="resposta">
+<p><span class="status">200</span> Dossiê composto e classificado.</p>
+<p class="media"><code>application/json</code></p>
+<pre>{
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;classification&quot;: {
+      &quot;$ref&quot;: &quot;#/components/schemas/Classification&quot;
+    }
+  }
+}</pre>
+</div><div class="resposta">
+<p><span class="status">403</span> Sem capacidade sobre a carteira.</p>
+
+</div><div class="resposta">
+<p><span class="status">404</span> Título ausente desta carteira. Indistinguível de título inexistente, de propósito.</p>
+
+</div>
+</section>
+<section class="operacao">
+<h3><span class="metodo">GET</span> <code>/api/v1/carteiras/{walletId}/prioridades</code></h3>
+<p>Lista a carteira por prioridade operacional, paginada por cursor opaco.</p>
+<h4>Parâmetros</h4><ul><li><code>walletId</code> em path — obrigatório</li><li><code>cursor</code> em query — opcional</li><li><code>limit</code> em query — opcional</li></ul>
+
+<h4>Respostas</h4>
+<div class="resposta">
+<p><span class="status">200</span> Uma página, mais o cursor da próxima.</p>
+
+</div><div class="resposta">
+<p><span class="status">400</span> Cursor inválido. O cursor é opaco e não deve ser construído pelo chamador.</p>
+
+</div>
+</section>
+<section class="operacao">
+<h3><span class="metodo">GET</span> <code>/api/v1/dossies/{dossierId}/prompt</code></h3>
+<p>Projeção do dossiê para consumo por agente, versionada e determinística.</p>
+<h4>Parâmetros</h4><ul><li><code>dossierId</code> em path — obrigatório</li><li><code>carteira</code> em query — obrigatório</li></ul>
+
+<h4>Respostas</h4>
+<div class="resposta">
+<p><span class="status">200</span> Texto do prompt.</p>
+<p class="media"><code>text/markdown</code></p>
+<pre>{
+  &quot;type&quot;: &quot;string&quot;
+}</pre>
+</div><div class="resposta">
+<p><span class="status">404</span> Dossiê fora do alcance desta carteira.</p>
+
+</div>
+</section>
+
+<h2>Schemas</h2>
+<section class="operacao">
+<h3 id="schema-Dossier">Dossier</h3>
+<pre>{
+  &quot;$schema&quot;: &quot;https://json-schema.org/draft/2020-12/schema&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;schema_version&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;pattern&quot;: &quot;^\\d+\\.\\d+\\.\\d+$&quot;
+    },
+    &quot;dossier_id&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;minLength&quot;: 1
+    },
+    &quot;composed_at&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;format&quot;: &quot;date-time&quot;,
+      &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+    },
+    &quot;fields&quot;: {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;propertyNames&quot;: {
+        &quot;type&quot;: &quot;string&quot;
+      },
+      &quot;additionalProperties&quot;: {
+        &quot;anyOf&quot;: [
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;MONETARIO_CENTAVOS&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;pattern&quot;: &quot;^-?\\d+$&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          },
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;TEXTO&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          },
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;BOOLEANO&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;boolean&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          },
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;DATA_HORA&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          },
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;LISTA_TEXTO&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          },
+          {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;status&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;enum&quot;: [
+                  &quot;ENCONTRADO&quot;,
+                  &quot;NAO_ENCONTRADO&quot;,
+                  &quot;NAO_CONSULTADO&quot;,
+                  &quot;ERRO_NA_FONTE&quot;
+                ]
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;object&quot;,
+                &quot;properties&quot;: {
+                  &quot;fonte&quot;: {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;minLength&quot;: 1
+                  },
+                  &quot;parametros_consulta&quot;: {
+                    &quot;type&quot;: &quot;object&quot;,
+                    &quot;propertyNames&quot;: {
+                      &quot;type&quot;: &quot;string&quot;
+                    },
+                    &quot;additionalProperties&quot;: {}
+                  }
+                },
+                &quot;required&quot;: [
+                  &quot;fonte&quot;,
+                  &quot;parametros_consulta&quot;
+                ],
+                &quot;additionalProperties&quot;: false
+              },
+              &quot;coletado_em&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;format&quot;: &quot;date-time&quot;,
+                &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+              },
+              &quot;data_referencia&quot;: {
+                &quot;anyOf&quot;: [
+                  {
+                    &quot;type&quot;: &quot;string&quot;,
+                    &quot;format&quot;: &quot;date-time&quot;,
+                    &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+                  },
+                  {
+                    &quot;type&quot;: &quot;null&quot;
+                  }
+                ]
+              },
+              &quot;confianca_vinculo&quot;: {
+                &quot;type&quot;: &quot;number&quot;,
+                &quot;minimum&quot;: 0,
+                &quot;maximum&quot;: 1
+              },
+              &quot;evidencia_vinculo&quot;: {
+                &quot;type&quot;: &quot;array&quot;,
+                &quot;items&quot;: {
+                  &quot;type&quot;: &quot;string&quot;
+                }
+              },
+              &quot;tipo_valor&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;const&quot;: &quot;SEM_VALOR&quot;
+              },
+              &quot;valor&quot;: {
+                &quot;type&quot;: &quot;null&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;status&quot;,
+              &quot;fonte&quot;,
+              &quot;coletado_em&quot;,
+              &quot;data_referencia&quot;,
+              &quot;confianca_vinculo&quot;,
+              &quot;evidencia_vinculo&quot;,
+              &quot;tipo_valor&quot;,
+              &quot;valor&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          }
+        ]
+      }
+    }
+  },
+  &quot;required&quot;: [
+    &quot;schema_version&quot;,
+    &quot;dossier_id&quot;,
+    &quot;composed_at&quot;,
+    &quot;fields&quot;
+  ],
+  &quot;additionalProperties&quot;: false
+}</pre>
+</section>
+<section class="operacao">
+<h3 id="schema-Classification">Classification</h3>
+<pre>{
+  &quot;$schema&quot;: &quot;https://json-schema.org/draft/2020-12/schema&quot;,
+  &quot;anyOf&quot;: [
+    {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;properties&quot;: {
+        &quot;schema_version&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;pattern&quot;: &quot;^\\d+\\.\\d+\\.\\d+$&quot;
+        },
+        &quot;classification_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;dossier_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;policy_version&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;classified_at&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;date-time&quot;,
+          &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+        },
+        &quot;operational_priority&quot;: {
+          &quot;type&quot;: &quot;integer&quot;,
+          &quot;minimum&quot;: 0,
+          &quot;maximum&quot;: 9007199254740991
+        },
+        &quot;primary_strategy&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;confianca_global&quot;: {
+          &quot;type&quot;: &quot;number&quot;,
+          &quot;minimum&quot;: 0,
+          &quot;maximum&quot;: 1
+        },
+        &quot;signals&quot;: {
+          &quot;type&quot;: &quot;array&quot;,
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;nome&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;minLength&quot;: 1
+              },
+              &quot;peso&quot;: {
+                &quot;type&quot;: &quot;number&quot;
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;minLength&quot;: 1
+              },
+              &quot;aplicado&quot;: {
+                &quot;type&quot;: &quot;boolean&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;nome&quot;,
+              &quot;peso&quot;,
+              &quot;fonte&quot;,
+              &quot;aplicado&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          }
+        },
+        &quot;explicacao&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;category&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;cobertura&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;const&quot;: &quot;SUFICIENTE&quot;
+        }
+      },
+      &quot;required&quot;: [
+        &quot;schema_version&quot;,
+        &quot;classification_id&quot;,
+        &quot;dossier_id&quot;,
+        &quot;policy_version&quot;,
+        &quot;classified_at&quot;,
+        &quot;operational_priority&quot;,
+        &quot;primary_strategy&quot;,
+        &quot;confianca_global&quot;,
+        &quot;signals&quot;,
+        &quot;explicacao&quot;,
+        &quot;category&quot;,
+        &quot;cobertura&quot;
+      ],
+      &quot;additionalProperties&quot;: false
+    },
+    {
+      &quot;type&quot;: &quot;object&quot;,
+      &quot;properties&quot;: {
+        &quot;schema_version&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;pattern&quot;: &quot;^\\d+\\.\\d+\\.\\d+$&quot;
+        },
+        &quot;classification_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;dossier_id&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;policy_version&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;classified_at&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;format&quot;: &quot;date-time&quot;,
+          &quot;pattern&quot;: &quot;^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$&quot;
+        },
+        &quot;operational_priority&quot;: {
+          &quot;type&quot;: &quot;integer&quot;,
+          &quot;minimum&quot;: 0,
+          &quot;maximum&quot;: 9007199254740991
+        },
+        &quot;primary_strategy&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;confianca_global&quot;: {
+          &quot;type&quot;: &quot;number&quot;,
+          &quot;minimum&quot;: 0,
+          &quot;maximum&quot;: 1
+        },
+        &quot;signals&quot;: {
+          &quot;type&quot;: &quot;array&quot;,
+          &quot;items&quot;: {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+              &quot;nome&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;minLength&quot;: 1
+              },
+              &quot;peso&quot;: {
+                &quot;type&quot;: &quot;number&quot;
+              },
+              &quot;fonte&quot;: {
+                &quot;type&quot;: &quot;string&quot;,
+                &quot;minLength&quot;: 1
+              },
+              &quot;aplicado&quot;: {
+                &quot;type&quot;: &quot;boolean&quot;
+              }
+            },
+            &quot;required&quot;: [
+              &quot;nome&quot;,
+              &quot;peso&quot;,
+              &quot;fonte&quot;,
+              &quot;aplicado&quot;
+            ],
+            &quot;additionalProperties&quot;: false
+          }
+        },
+        &quot;explicacao&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;minLength&quot;: 1
+        },
+        &quot;category&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;const&quot;: &quot;DADOS_INSUFICIENTES&quot;
+        },
+        &quot;cobertura&quot;: {
+          &quot;type&quot;: &quot;string&quot;,
+          &quot;const&quot;: &quot;INSUFICIENTE&quot;
+        }
+      },
+      &quot;required&quot;: [
+        &quot;schema_version&quot;,
+        &quot;classification_id&quot;,
+        &quot;dossier_id&quot;,
+        &quot;policy_version&quot;,
+        &quot;classified_at&quot;,
+        &quot;operational_priority&quot;,
+        &quot;primary_strategy&quot;,
+        &quot;confianca_global&quot;,
+        &quot;signals&quot;,
+        &quot;explicacao&quot;,
+        &quot;category&quot;,
+        &quot;cobertura&quot;
+      ],
+      &quot;additionalProperties&quot;: false
+    }
+  ]
+}</pre>
+</section>
+<section class="operacao">
+<h3 id="schema-LookupDossierRequest">LookupDossierRequest</h3>
+<pre>{
+  &quot;$schema&quot;: &quot;https://json-schema.org/draft/2020-12/schema&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;properties&quot;: {
+    &quot;id_externo&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;minLength&quot;: 1
+    }
+  },
+  &quot;required&quot;: [
+    &quot;id_externo&quot;
+  ],
+  &quot;additionalProperties&quot;: false
+}</pre>
+</section>
+</main>
+<footer>
+<p>Toda requisição exige o cabeçalho <code>Authorization</code> e responde
+<code>cache-control: no-store</code>: o dossiê é dado pessoal de pessoa
+identificada. Não existe consulta aberta por CPF — o único identificador que o
+chamador segura é o <code>id_externo</code> do título, dentro de uma carteira
+que ele já tem autorização para ler.</p>
+<p>A pontuação ordena esforço de cobrança entre devedores. Ela não estima se
+alguém vai pagar, e não deve ser apresentada nem usada como se estimasse.</p>
+</footer>
+</body>
+</html>

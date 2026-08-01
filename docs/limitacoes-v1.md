@@ -17,6 +17,75 @@ nenhuma `VerifiedPrincipal` é emitida, em nenhuma chamada, então o servidor n�
 autentica ninguém em produção (ADR 021). É esse fecho que segura a maior parte
 do risco desta lista.
 
+## Decisões de escopo
+
+As duas seções seguintes não são pendências. São escolhas, com o motivo delas,
+e estão aqui porque a ausência que produzem é visível e seria lida como lacuna
+se ninguém a explicasse.
+
+### Por que a interface é deliberadamente fina
+
+O enunciado nomeia um **agente de AI** como consumidor final e diz que isso
+condiciona a arquitetura desde a primeira decisão de modelagem. Das quatro
+capacidades exigidas, uma é **camada de consumo por agente** — e **nenhuma** é
+requisito de interface. O produto é o contrato de saída; a tela é entrega.
+
+Foi assim que o escopo de UI foi decidido: três telas server-rendered, sem
+framework e sem bundle de cliente ([ADR 024](decisions/024-ui-servida-pelo-mesmo-roteador-sem-framework.md)).
+
+| Tela | Para que existe |
+|---|---|
+| Prioridades da carteira | Mostrar que a fila é ordenada por categoria e pontuação, não por valor |
+| Dossiê | Mostrar campo com envelope, valor retido sob vínculo não confirmado, sinais nomeados e a explicação — o que o direito de revisão exige que seja legível |
+| Importação de carteira | Fechar o laço de uso: carregar a carteira é operação de cliente, não execução de script |
+
+**O que sustenta a decisão é que as telas não são um segundo caminho.** Elas
+chamam os mesmos handlers e passam pela mesma autorização que a API: a fila lê
+o mesmo `listPriorities`, o dossiê a mesma composição, e a importação chama
+`previewWalletImport` e `commitWalletImport`, exatamente as funções que o
+seeder chama. A audiência da visão é derivada da concessão que o repositório
+devolveu — nunca de algo que a requisição diga sobre si. Uma tela que tivesse
+consulta própria seria uma segunda fonte de verdade, e é isso que a arquitetura
+proíbe.
+
+Portanto **não foram construídos**: painel com filtros e busca, gráficos,
+edição de carteira pela tela, tela de login própria, exportação em PDF,
+paginação visual da fila. Nada disso mudaria uma decisão do motor. O custo de
+construir qualquer um deles sairia do contrato — que é onde o enunciado põe o
+valor — e o benefício seria de demonstração.
+
+O que a fineza custa está declarado: a fila não pagina na tela (a API pagina,
+por keyset), não há busca por título, e a importação não mostra histórico de
+importações anteriores, embora cada uma seja registrada em auditoria.
+
+### Por que não há deploy
+
+O sistema **falha fechado sem verificação de JWT/JWKS** (P-1, logo abaixo):
+fora de `NODE_ENV=development` nenhuma `VerifiedPrincipal` é emitida, em
+nenhuma chamada. Um processo iniciado em produção hoje não autentica ninguém e
+não serve dossiê nenhum. Isso é [ADR 021](decisions/021-identidade-verificada-e-proibicao-de-producao-sem-jwt-jwks.md),
+e é a garantia mais forte deste repositório.
+
+Publicar a aplicação exigiria **desligar essa guarda** — num sistema que decifra
+CPF. É esse o cálculo, e ele não é próximo: uma demonstração acessível por URL
+valeria menos que a chance de um CPF real ser importado num ambiente que não
+autentica ninguém. A demonstração local recusa qualquer banco que não esteja em
+loopback antes mesmo de assumir o modo de desenvolvimento, pelo mesmo motivo.
+
+O que precisaria acontecer, em ordem, para que um deploy fosse defensável:
+
+1. **P-1**: validação fail-closed de assinatura, issuer, audience, expiração e
+   rotação de chave, com o `tenantId` e o papel vindos de claim verificada.
+2. **F-5**: cofre de chaves AEAD real (KMS do [ADR 006](decisions/006-topologia-de-execucao-e-gestao-de-segredos.md)),
+   porque hoje a chave morre com o processo.
+3. **I-5**: resolução de identidade contra o banco, que não existe enquanto o
+   tenant não vier da claim.
+
+**A documentação de contrato é outra coisa e pode ser publicada.** O OpenAPI
+gerado é um arquivo estático, não tem banco atrás e não decifra nada — está em
+[`docs/openapi.html`](openapi.html) justamente para que o contrato possa ser
+lido sem que a aplicação suba. Publicar contrato não é publicar sistema.
+
 ## Bloqueio de produção
 
 | # | O que é | Por que não alcançável hoje | Gatilho para fechar |
@@ -48,7 +117,27 @@ do risco desta lista.
 | F-3 | Layout de colunas dos Dados Abertos PGFN segue o publicado e **não é verificado por contrato**. | Não há amostra real de Dados Abertos; a Lista manual, essa sim, foi conferida contra arquivo real. | Primeira execução do worker contra arquivo publicado de verdade. Layout inesperado falha alto (`LAYOUT_PGFN_INVALIDO`), nunca devolve campo vazio. |
 | F-4 | Detecção de bloco na Lista manual usa limiar de **duas linhas vazias**, heurística não verificada. | Nenhum export real com duas consultas concatenadas estava disponível; o arquivo real conferido tem uma consulta só. | Primeiro export real concatenado. Custo de errar é limitado por desenho: bloco sem preâmbulo é marcado `SEM_PROCEDENCIA`, nunca fundido. |
 | F-2 | Lista PGFN manual não é raspada em nenhuma hipótese (ADR 015); a entrada é upload manual. | Decisão fechada em ADR, não pendência. | Nunca. Registrado aqui para não ser relido como lacuna. |
+| F-6 | **A coleta da PGFN nunca foi exercida contra a fonte viva.** O download automático do dump trimestral de Dados Abertos não rodou em ambiente real: em teste e na demonstração o worker lê fixtures commitadas, e nenhum teste toca a rede. | Decisão de teste, não defeito: fixture é o que mantém a suíte determinística e fora da rede. O que não existe é a execução contra o arquivo publicado de verdade. | Primeira execução real do worker. Ver o parágrafo abaixo para o que **foi** conferido e o que não foi. |
 | F-5 | O cofre de chaves AEAD é `createInMemoryCpfCrypto`: o `Debtor` fica cifrado no banco, mas a chave morre com o processo, então um processo novo não decifra o CPF de uma importação anterior. | Não há integração com KMS; ADR 006 define AWS KMS/Secrets Manager para produção e nada disso sobe em Compose local. | Primeiro ambiente que precise ler um CPF importado por outro processo — na prática, o mesmo deploy que P-1 bloqueia. |
+
+### O que foi conferido na PGFN, e o que não foi
+
+Dito sem rodeio, porque a diferença entre as duas colunas é a diferença entre
+uma afirmação verificada e uma esperada:
+
+| Conferido | Não conferido |
+|---|---|
+| O **parser da Lista de Devedores** foi rodado contra um **export real**, numa conferência local: 91 linhas, preâmbulo de filtros, divergência entre `Valor Total` e `Valor da Dívida Selecionada` em 31 delas, precisão excedente em 17 | O **download automático do dump trimestral** de Dados Abertos **nunca rodou em ambiente real** |
+| As fixtures commitadas **preservam as armadilhas estruturais** daquele arquivo — máscara nas posições 4–9, homonímia por token sem posição, linhas vazias no meio, bloco sem procedência, os dois valores divergentes | O **layout de colunas** dos Dados Abertos segue o publicado e não foi verificado contra arquivo real (F-3) |
+| O comportamento do parser sobre essas armadilhas está preso por teste | A heurística de **duas linhas vazias** para separar blocos concatenados (F-4) |
+
+O arquivo real contém pessoas reais: fica no `.gitignore`, fora de log e fora de
+serviço de terceiro — por isso a conferência é local e o que se commita é
+fixture sintética que preserva o padrão.
+
+O custo de errar está limitado por desenho e não por sorte: layout inesperado
+falha alto com `LAYOUT_PGFN_INVALIDO` e nunca devolve campo vazio, e bloco sem
+preâmbulo é marcado `SEM_PROCEDENCIA` em vez de ser fundido com o anterior.
 
 ## Classificação
 

@@ -135,11 +135,12 @@ function harness(
     readonly theme?: TenantTheme | null;
   } = {},
 ) {
+  const actions = overrides.actions ?? ["IMPORT_WALLET", "READ_ACTIONABLE"];
   const written: Written = { titles: [], audits: [] };
   const staging = createInMemoryImportStaging();
   const route = createRouter({
     plan: PLAN,
-    authorization: new WalletFixture(overrides.actions),
+    authorization: new WalletFixture(actions),
     authenticate: async (incoming) =>
       incoming.headers.authorization?.startsWith("Bearer ")
         ? identityFor(identityRepository)
@@ -151,7 +152,15 @@ function harness(
     snapshots: { save: async () => undefined, find: async () => null },
     priorities: { listForWallet: async () => [] },
     theme: {
-      read: async () => (overrides.theme === undefined ? THEME : overrides.theme),
+      // Mirrors `PrismaTenantThemeRepository`, which demands a READ_ACTIONABLE
+      // operation. A fixture that accepted any operation would hide the very
+      // mismatch this screen can produce: it authorizes IMPORT_WALLET.
+      read: async (_principal, operation) => {
+        if (operation.action !== "READ_ACTIONABLE") {
+          throw new Error("OPERATION_ACTION_FORBIDDEN");
+        }
+        return overrides.theme === undefined ? THEME : overrides.theme;
+      },
     },
     walletFiles: { parse: (bytes) => parseWalletFile(bytes) },
     imports: recordingStore(written),
@@ -397,6 +406,19 @@ describe("the same authorization path as everything else", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("refuses an actor who may import but may not read the wallet", async () => {
+    // The page is rendered in the tenant's own branding, and reading that
+    // configuration is an operational read. The theme repository demands a
+    // READ_ACTIONABLE operation, so the screen asks for one — rather than
+    // widening what the repository accepts.
+    const response = await harness({ actions: ["IMPORT_WALLET"] }).route(
+      request({}),
+    );
+
+    expect(response.status).toBe(403);
+    expect(JSON.stringify(response.body)).toContain("PRIORIDADES_NAO_AUTORIZADAS");
   });
 
   it("refuses to preview for an actor without the import capability", async () => {

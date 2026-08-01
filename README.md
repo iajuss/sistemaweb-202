@@ -8,15 +8,53 @@ ordena esforço de cobrança e não estima se alguém vai pagar.
 O consumidor final é um agente de AI. O contrato de saída é o produto; a UI é
 camada de entrega.
 
+## As três telas
+
+![Fila de prioridades da carteira](docs/img/01-prioridades.png)
+
+**Prioridades da carteira.** A fila ordenada por categoria e pontuação, não por
+valor devido: a pontuação ordena **esforço de cobrança**, e o rodapé diz isso em
+toda tela para que ninguém a leia como probabilidade de pagamento.
+
+![Dossiê com campos, sinais e explicação](docs/img/02-dossie.png)
+
+**Dossiê.** Cada campo carrega valor, fonte, vínculo e data de coleta. O campo
+com vínculo não confirmado aparece **com o valor retido** — alguém publicou
+aquele dado, mas ninguém estabeleceu que é desta pessoa. Abaixo, os sinais
+nomeados com peso e fonte, e a explicação por extenso que o direito de revisão
+de decisão automatizada exige.
+
+![Conferência de importação, com as linhas em quarentena](docs/img/03-importacao.png)
+
+**Importação de carteira.** A conferência antes de gravar: o que seria aceito e
+o que vai para quarentena, com **número da linha e motivo** — nunca o CPF. Uma
+linha inválida não derruba o arquivo inteiro, e nenhuma linha é descartada em
+silêncio.
+
 - Regras permanentes do projeto: [`AGENTS.md`](AGENTS.md)
 - Decisões fechadas: [`docs/decisions/README.md`](docs/decisions/README.md)
 - Fontes, custo e base legal: [`docs/fontes.md`](docs/fontes.md)
 - LGPD, retenção e expurgo: [`docs/lgpd.md`](docs/lgpd.md)
-- O que a v1 não faz: [`docs/limitacoes-v1.md`](docs/limitacoes-v1.md)
+- O que a v1 não faz, e por quê: [`docs/limitacoes-v1.md`](docs/limitacoes-v1.md)
+- Para onde isso vai depois: [`docs/proximos-passos.md`](docs/proximos-passos.md)
 - Casos conferíveis à mão: [`docs/casos-de-teste.md`](docs/casos-de-teste.md)
 - Roteiro de demonstração em 10 minutos: [`docs/demonstracao.md`](docs/demonstracao.md)
+- **Contrato da API, em página legível:** [`docs/openapi.html`](docs/openapi.html)
 
-## As duas telas, para quem só quer ver
+### Sobre o contrato publicável e a aplicação não publicada
+
+`docs/openapi.html` é gerado a partir dos mesmos schemas Zod que o servidor
+valida em runtime, e é um arquivo estático e autocontido — sem CDN, sem banco
+atrás. **Ele pode ser publicado** (GitHub Pages, por exemplo).
+
+**A aplicação, não.** O sistema falha fechado sem verificação de JWT/JWKS
+(pendência P-1): fora de `NODE_ENV=development` nenhuma principal verificada é
+emitida, em nenhuma chamada. Publicá-la exigiria desligar essa guarda num
+sistema que decifra CPF. O raciocínio inteiro está em
+[`docs/limitacoes-v1.md`](docs/limitacoes-v1.md), na seção de decisões de
+escopo. Publicar contrato não é publicar sistema.
+
+## Para quem só quer ver
 
 Com a preparação feita (passos 1 a 5 abaixo) e o `pnpm demo` no ar, é isto:
 
@@ -24,6 +62,7 @@ Com a preparação feita (passos 1 a 5 abaixo) e o `pnpm demo` no ar, é isto:
 |---|---|
 | **Prioridades da carteira** | http://127.0.0.1:3000/carteiras/carteira-demo/prioridades |
 | **Dossiê** | http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1 |
+| **Importar carteira** | http://127.0.0.1:3000/carteiras/carteira-demo/importacoes |
 
 O navegador pede usuário e senha: **`demo` / `demo`**. Qualquer par serve —
 nada é conferido, e o passo 9 explica por quê.
