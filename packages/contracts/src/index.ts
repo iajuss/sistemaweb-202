@@ -31,6 +31,9 @@ export type {
 } from "./role-view.js";
 export { buildOpenApiDocument } from "./openapi.js";
 export type { OpenApiDocument, OpenApiOperation } from "./openapi.js";
+export { renderOpenApiPage } from "./openapi-page.js";
+export { CONTRACT_ARTIFACTS, writeArtifacts } from "./generate.js";
+export type { GeneratedArtifact } from "./generate.js";
 export {
   FORBIDDEN_LOOKUP_KEYS,
   ListPrioritiesRequestSchema,

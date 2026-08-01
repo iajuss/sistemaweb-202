@@ -33,8 +33,13 @@ jobs:
       # Zod is the single source of truth: a regenerated artefact that differs
       # from the committed one means the contract on disk no longer describes
       # the validator that runs.
-      - name: contracts have no regenerated drift
-        run: git diff --exit-code -- packages/contracts/generated
+      #
+      # The whole tree, not one directory: `docs/openapi.html` and
+      # `docs/exemplo-carteira.csv` are generated too, and scoping this check
+      # to `packages/contracts/generated` is what let the second of those drift
+      # silently. `apps/web/src/generated-artifacts.ts` is the list.
+      - name: generated artefacts have no regenerated drift
+        run: git diff --exit-code
       - run: pnpm test
       - run: pnpm lint
       - run: pnpm typecheck

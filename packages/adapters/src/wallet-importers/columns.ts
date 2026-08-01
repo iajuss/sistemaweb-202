@@ -86,9 +86,17 @@ const EXAMPLE_ROWS: readonly string[] = Object.freeze([
   "EXEMPLO-004;CARLOS PEREIRA;845.206.173-09;300,00;20/06/2026",
 ]);
 
+/**
+ * Lines joined with `\n`, not `\r\n`. RFC 4180 says CRLF, but this file is a
+ * **committed generated artefact**, and git normalises it to LF on the way in:
+ * a generator emitting CRLF can therefore never equal its own committed copy
+ * on a checkout that honours the repository's line endings. It cost a red CI
+ * exactly once. The parser accepts either (`split(/\r?\n/)`), so nothing about
+ * reading a real client's file changes.
+ */
 export function exampleWalletCsv(): string {
   const header = WALLET_COLUMNS.map((column) => column.header).join(";");
-  return [header, ...EXAMPLE_ROWS, ""].join("\r\n");
+  return [header, ...EXAMPLE_ROWS, ""].join("\n");
 }
 
 /**

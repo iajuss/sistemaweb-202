@@ -5,8 +5,19 @@ fixtures/wallet/** -text
 fixtures/pgfn/** -text
 *.xlsx binary
 
-# The generator writes LF and the repository stores LF. Without this, autocrlf
-# checks these out as CRLF on Windows, and `git status` reports them modified
-# the moment they are regenerated — drift that is only line endings, on exactly
-# the two files whose diff is supposed to mean "the contract changed".
+# --- Artefatos gerados de código e commitados -------------------------------
+#
+# Regra da categoria, não de dois arquivos: **todo artefato gerado é LF**. O
+# gerador escreve LF e o repositório guarda LF. Sem isso, o autocrlf traz o
+# arquivo como CRLF no Windows, e aí ou o `git status` acusa modificação assim
+# que alguém regenera, ou — pior — o teste que compara o commitado com o gerado
+# passa num sistema operacional e falha no outro. Foi o que derrubou a CI uma
+# vez: o exemplo de carteira era gerado com CRLF e guardado com LF.
+#
+# **Acrescentou um artefato gerado? Acrescente também em
+# `apps/web/src/generated-artifacts.ts`.** O teste ao lado daquele arquivo
+# afirma, por caminho, que a regra `eol=lf` existe aqui — então esquecer esta
+# linha quebra a suíte em vez de quebrar a CI de outra pessoa.
 packages/contracts/generated/** text eol=lf
+docs/openapi.html text eol=lf
+docs/exemplo-carteira.csv text eol=lf

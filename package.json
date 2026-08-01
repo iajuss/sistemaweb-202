@@ -11,7 +11,7 @@
     "test:integration": "vitest run integration.test --no-file-parallelism",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --project tsconfig.base.json --noEmit",
-    "generate:contracts": "pnpm --filter @panella/contracts generate",
+    "generate:contracts": "pnpm --filter @panella/web generate:artifacts",
     "migrate": "node scripts/migrate.mjs",
     "migrate:compose": "docker compose run --rm migrate",
     "compose:up": "docker compose up -d --wait postgres keycloak",

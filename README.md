@@ -491,17 +491,34 @@ Roda as suítes de cada pacote do workspace.
 
 ## Verificação
 
+**Antes de dar push, rode isto** — é exatamente o que a CI roda, na mesma
+ordem:
+
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm generate:contracts
+pnpm generate:contracts && git diff --exit-code && pnpm test && pnpm lint && pnpm typecheck
 ```
 
-`lint` é eslint com zero warnings, `typecheck` é `tsc` estrito sem emit, e
-`generate:contracts` regenera JSON Schema, OpenAPI **e a página legível do
-contrato** ([`docs/openapi.html`](docs/openapi.html)) a partir do Zod. O
-contrato publicado nunca é escrito à mão: se `generate:contracts` produzir
-diferença, o código mudou o contrato e a diferença é a mudança.
+`pnpm test` é o comando da CI e roda a suíte de **cada pacote** do workspace,
+incluindo a de integração. Rodar `test:unit` e `test:integration` em separado
+cobre quase o mesmo conjunto, mas não é o que a CI executa — e "passou aqui"
+sobre um comando diferente do dela já custou uma CI vermelha.
+
+O que cada um garante:
+
+| Comando | Garante |
+|---|---|
+| `pnpm generate:contracts` | Regenera **todo artefato gerado**: JSON Schema, OpenAPI, a página legível do contrato e o CSV de exemplo |
+| `git diff --exit-code` | Nenhum artefato gerado ficou diferente do commitado. Se deu diferença, o código mudou o contrato e a diferença **é** a mudança |
+| `pnpm test` | Suíte inteira, por pacote, como na CI |
+| `pnpm lint` | eslint com zero warnings |
+| `pnpm typecheck` | `tsc` estrito, sem emit |
+
+**Artefato gerado é sempre LF**, fixado em `.gitattributes` e conferido por
+teste caminho a caminho (`apps/web/src/generated-artifacts.ts`). Sem isso, o
+autocrlf reescreve o arquivo no Windows e o teste que compara o commitado com o
+gerado passa num sistema operacional e falha no outro — que é um teste
+reportando o sistema operacional, não o código. Acrescentou artefato gerado?
+Acrescente na lista, e o teste cobra a regra.
 
 ## Dados
 
