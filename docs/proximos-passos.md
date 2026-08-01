@@ -19,6 +19,35 @@ A camada conversacional não faz parte deste escopo. O endpoint
 o dossiê como texto estável e versionado, com cobertura, procedência e
 incertezas explicitadas, pronto para entrar em prompt de um agente de cobrança.
 
+## O primeiro item, porque já está desenhado: projeção persistida de classificação
+
+Não é ideia de produto, é dívida técnica com desenho pronto e motivo datado.
+
+A fila de prioridades lê **quem está na carteira** do PostgreSQL, e a
+classificação de quem já tem dossiê composto. Como não existe tabela de dossiê
+nem de classificação, essa segunda metade vem dos snapshots que vivem no
+processo — então um reinício apaga as classificações e todo mundo volta a
+aparecer como "sem dossiê composto" até ser consultado de novo.
+
+O fim de linha correto é uma **tabela de projeção por tenant** — `dossierId`,
+`debtorId`, categoria, prioridade operacional, pontuação e `composedAt` —
+escrita quando um dossiê é composto e lida com `READ_ACTIONABLE`. Isso dá à fila
+uma leitura só no banco, com paginação empurrada para o SQL, e sobrevivência a
+reinício.
+
+O que ela exige, e que foi o motivo de ficar para depois: migração, política de
+RLS ([ADR 020](decisions/020-isolamento-tenant-por-repositorio-e-rls.md)),
+repositório com o padrão de autoridade e fábrica, inscrição no teste
+arquitetural que enumera repositórios, e teste de integração de isolamento entre
+tenants. Foi decisão consciente não fazer isso na véspera da entrega, no
+subsistema onde um erro custa mais caro. Raciocínio completo no
+[ADR 027](decisions/027-fila-lida-da-carteira-e-projecao-de-classificacao-adiada.md).
+
+**O que não muda quando ela existir:** um devedor que ninguém consultou continua
+aparecendo na fila como `DADOS_INSUFICIENTES`, e continua distinguível de um
+dossiê que voltou vazio. Persistir a projeção resolve durabilidade e
+desempenho — não a distinção, que é de desenho.
+
 ## Do triagem por regras ao score de propensão
 
 A v1 **não** estima probabilidade de pagamento, e isso é decisão registrada no

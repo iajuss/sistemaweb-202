@@ -124,6 +124,7 @@ function router(
     readonly stored?: readonly DossierSnapshot[];
     readonly theme?: TenantTheme | null;
     readonly debtorName?: string;
+    readonly semDossie?: boolean;
   } = {},
 ) {
   const authorization = new WalletFixture(overrides.actions);
@@ -191,6 +192,17 @@ function router(
           operationalPriority: 1,
           score: 0.35,
         },
+        ...(overrides.semDossie
+          ? [
+              {
+                dossierId: null,
+                externalId: "NOVA-001",
+                category: "DADOS_INSUFICIENTES" as const,
+                operationalPriority: 3,
+                score: 0,
+              },
+            ]
+          : []),
       ],
     },
     now: () => new Date("2026-07-31T12:00:00.000Z"),
@@ -450,6 +462,25 @@ describe("UI — página de prioridades da carteira", () => {
     const response = await router()(request({ path: "/carteiras/wallet-b/prioridades" }));
 
     expect(response.status).toBe(403);
+  });
+
+  it("shows an imported debtor nobody looked up yet, and says so", async () => {
+    // The failure this guards: a wallet is imported, the queue does not change,
+    // and the operator concludes the import failed. The row must be there, and
+    // it must read as "not looked at yet" rather than as a clean dossier.
+    const html = (await router({ semDossie: true })(request({ path }))).body as string;
+
+    expect(html).toContain("NOVA-001");
+    expect(html).toContain("DADOS_INSUFICIENTES");
+    expect(html).toContain("sem dossiê composto");
+  });
+
+  it("does not link a row that has no dossier to open", async () => {
+    const html = (await router({ semDossie: true })(request({ path }))).body as string;
+
+    // A link to `/dossies/null` would 404 and read as a broken screen.
+    expect(html).not.toContain("/dossies/null");
+    expect(html).not.toContain("/dossies/undefined");
   });
 });
 

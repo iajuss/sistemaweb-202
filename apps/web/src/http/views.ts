@@ -84,6 +84,8 @@ a { color: var(--primaria); }
 .nao-aplicado { color: #6b7680; }
 ul.evidencia { margin: .25rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
 .erro { color: #8a1c1c; background: #fdeaea; padding: .6rem .75rem; }
+.pendente { font-size: .78rem; color: #55606b; background: #eef1f4; padding: .05rem .35rem; margin-left: .35rem; white-space: nowrap; }
+.nota { font-size: .9rem; color: #55606b; }
 code { font: .9em ui-monospace, monospace; }
 button { font: inherit; background: var(--primaria); color: #fff; border: 0; padding: .55rem 1rem; cursor: pointer; }
 input[type=file] { font: inherit; }
@@ -113,15 +115,32 @@ export function renderPrioritiesPage(
   entries: readonly PriorityEntry[],
 ): string {
   const linhas = entries
-    .map(
-      (entry) => `<tr>
+    .map((entry) => {
+      // No dossier means nobody has looked this debtor up yet — imported and
+      // untouched. It is deliberately not rendered like a dossier that came
+      // back empty: "não consultado" and "não encontrado" are different
+      // answers everywhere else in this system, and they stay different here.
+      const titulo =
+        entry.dossierId === null
+          ? `${escape(entry.externalId)} <span class="pendente">sem dossiê composto</span>`
+          : `<a href="/carteiras/${encodeURIComponent(walletId)}/dossies/${encodeURIComponent(entry.dossierId)}">${escape(entry.externalId)}</a>`;
+
+      return `<tr>
 <td>${entry.operationalPriority}</td>
-<td><a href="/carteiras/${encodeURIComponent(walletId)}/dossies/${encodeURIComponent(entry.dossierId)}">${escape(entry.externalId)}</a></td>
+<td>${titulo}</td>
 <td>${escape(entry.category)}</td>
 <td class="numero">${escape(entry.score.toFixed(2).replace(".", ","))}</td>
-</tr>`,
-    )
+</tr>`;
+    })
     .join("\n");
+
+  const semDossie = entries.some((entry) => entry.dossierId === null);
+  const nota = semDossie
+    ? `<p class="nota"><strong>Sem dossiê composto</strong> quer dizer que ninguém
+consultou fonte alguma sobre esse devedor ainda — não que as fontes nada
+encontraram. O dossiê é composto na consulta, e a carteira define quem pode
+ser consultado.</p>`
+    : "";
 
   const vazio = `<p>Nenhum dossiê classificado nesta carteira.</p>`;
   const tabela = `<table>
@@ -136,7 +155,8 @@ ${linhas}
     "Prioridades",
     `<h1>Prioridades da carteira ${escape(walletId)}</h1>
 <p><a href="/carteiras/${encodeURIComponent(walletId)}/importacoes">Importar carteira</a></p>
-${entries.length === 0 ? vazio : tabela}`,
+${entries.length === 0 ? vazio : tabela}
+${nota}`,
   );
 }
 

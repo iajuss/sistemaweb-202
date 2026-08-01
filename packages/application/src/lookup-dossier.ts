@@ -114,7 +114,14 @@ export async function lookupDossier(
 }
 
 export interface PriorityEntry {
-  readonly dossierId: string;
+  /**
+   * `null` when nobody has composed a dossier for this debtor yet — a wallet
+   * row that was imported and not yet looked up. It is not the same as a
+   * dossier that came back empty, and the queue must not show the two alike:
+   * the engine's own distinction between `NAO_CONSULTADO` and `NAO_ENCONTRADO`
+   * is the same distinction, and it stays legible on the way out.
+   */
+  readonly dossierId: string | null;
   readonly externalId: string;
   readonly category: PolicyCategory;
   readonly operationalPriority: number;
@@ -129,17 +136,22 @@ export interface PriorityPage {
 interface CursorPosition {
   readonly p: number;
   readonly s: number;
-  readonly d: string;
+  readonly e: string;
 }
 
 function encodeCursor(entry: PriorityEntry): string {
   // Base64url of the sort key, and nothing else. The key is priority, score
-  // and dossier id — no CPF, no debtor id, nothing about a person.
+  // and the title's external id — no CPF, no debtor id, nothing about a
+  // person. The tiebreaker is the external id rather than the dossier id
+  // because a debtor nobody has looked up yet has no dossier to be named by,
+  // and dropping such a row from the queue would hide a wallet member. The
+  // database enforces `UNIQUE (tenantId, walletId, externalId)`, and the queue
+  // carries one row per debtor, so the key is total.
   return Buffer.from(
     JSON.stringify({
       p: entry.operationalPriority,
       s: entry.score,
-      d: entry.dossierId,
+      e: entry.externalId,
     } satisfies CursorPosition),
     "utf8",
   ).toString("base64url");
@@ -155,7 +167,7 @@ function decodeCursor(cursor: string): CursorPosition {
       parsed === null ||
       typeof (parsed as CursorPosition).p !== "number" ||
       typeof (parsed as CursorPosition).s !== "number" ||
-      typeof (parsed as CursorPosition).d !== "string"
+      typeof (parsed as CursorPosition).e !== "string"
     ) {
       throw new Error("CURSOR_INVALIDO");
     }
@@ -169,15 +181,15 @@ function compare(left: PriorityEntry, right: PriorityEntry): number {
   return (
     left.operationalPriority - right.operationalPriority ||
     right.score - left.score ||
-    left.dossierId.localeCompare(right.dossierId)
+    left.externalId.localeCompare(right.externalId)
   );
 }
 
 function isAfter(entry: PriorityEntry, position: CursorPosition): boolean {
   return (
     compare(entry, {
-      dossierId: position.d,
-      externalId: "",
+      dossierId: null,
+      externalId: position.e,
       category: "MONITORAMENTO",
       operationalPriority: position.p,
       score: position.s,

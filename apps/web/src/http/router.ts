@@ -705,8 +705,9 @@ function fieldOf(body: unknown, name: string): string | null {
 }
 
 /**
- * Same ordering rule the API's queue uses: category first, then score, then
- * dossier id, so the page never depends on the order the reader returned.
+ * Same ordering rule the API's queue uses: priority first, then score, then
+ * the title's external id, so the page never depends on the order the reader
+ * returned — and so a row whose debtor has no dossier still has a place.
  */
 function orderPriorityEntries(
   entries: readonly PriorityEntry[],
@@ -715,6 +716,6 @@ function orderPriorityEntries(
     (left, right) =>
       left.operationalPriority - right.operationalPriority ||
       right.score - left.score ||
-      left.dossierId.localeCompare(right.dossierId),
+      left.externalId.localeCompare(right.externalId),
   );
 }

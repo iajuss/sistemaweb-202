@@ -35,6 +35,7 @@ consequências mora aqui.
 | [024](024-ui-servida-pelo-mesmo-roteador-sem-framework.md) | UI no mesmo roteador, sem framework; audiência derivada da concessão |
 | [025](025-versao-de-politica-identifica-comportamento.md) | Versão de política identifica comportamento, não intenção |
 | [026](026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md) | Guarda inalcançável sai; o invariante de emissor único fica no lugar |
+| [027](027-fila-lida-da-carteira-e-projecao-de-classificacao-adiada.md) | Fila lida da carteira; projeção persistida de classificação adiada |
 
 ## Escrevendo um ADR novo
 

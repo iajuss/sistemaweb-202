@@ -1,5 +1,8 @@
 import type { AddressInfo } from "node:net";
 
+import { buildWalletQueue } from "@panella/application";
+import { evaluatePolicy, POLICY_2026_07_B } from "@panella/domain";
+
 import { parseWalletFile } from "../../../../packages/adapters/src/wallet-importers/wallet-file.js";
 
 import { createInMemoryImportStaging } from "../http/import-staging.js";
@@ -80,7 +83,42 @@ async function main(): Promise<void> {
       find: async (_principal, _operation, dossierId) =>
         runtime.snapshots.get(dossierId) ?? null,
     },
-    priorities: { listForWallet: async () => runtime.priorities },
+    // The queue is read, not remembered. It used to be the array computed at
+    // seed time, which meant a wallet imported through the screen changed
+    // nothing here — and a queue that does not move after an accepted import
+    // reads as an import that failed.
+    priorities: {
+      listForWallet: (principal, operation) =>
+        buildWalletQueue({
+          principal,
+          operation,
+          // Membership comes from the titles in PostgreSQL, under the same
+          // READ_ACTIONABLE operation the page was authorized with.
+          titles: {
+            listByWallet: (p, o) => runtime.store.titles.listByWallet(p, o),
+          },
+          // Classifications come from the composed snapshots. A debtor with
+          // none is not missing from the queue — they arrive as
+          // DADOS_INSUFICIENTES with no dossier to open.
+          classifications: {
+            listForWallet: async () =>
+              [...runtime.snapshots.values()].map((snapshot) => {
+                const classification = evaluatePolicy(
+                  snapshot,
+                  POLICY_2026_07_B,
+                );
+                return {
+                  dossierId: snapshot.dossierId,
+                  debtorId: snapshot.debtorId,
+                  category: classification.category,
+                  operationalPriority: classification.operational_priority,
+                  score: classification.score,
+                  composedAt: snapshot.composedAt,
+                };
+              }),
+          },
+        }),
+    },
     // The same importer the seeding above ran, now reachable from a browser:
     // the screen adds a delivery layer, never a second import path.
     walletFiles: { parse: (bytes) => parseWalletFile(bytes) },

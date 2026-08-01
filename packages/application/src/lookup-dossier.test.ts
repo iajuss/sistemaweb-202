@@ -257,7 +257,68 @@ describe("cursor pagination over priorities", () => {
     const decoded = Buffer.from(nextCursor ?? "", "base64url").toString("utf8");
 
     expect(decoded).not.toContain("529");
-    expect(decoded).toContain("d-2");
+    expect(decoded).toContain("TIT-2");
+  });
+
+  it("carries no debtor id in the cursor", () => {
+    // The key is priority, score and the title's external id — the same id the
+    // page already showed the caller in the row it is paging from. A debtor id
+    // is pseudonymous but still about a person, and never belongs here.
+    const { nextCursor } = listPriorities(carteira, { cursor: null, limit: 3 });
+    const decoded = Buffer.from(nextCursor ?? "", "base64url").toString("utf8");
+
+    expect(decoded).not.toContain("debtor");
+  });
+
+  it("pages a wallet whose debtors have no dossier composed yet", () => {
+    // Freshly imported, nobody looked them up: there is no dossier to name.
+    // They must still page, or the queue silently drops a debtor the wallet
+    // holds — the exact failure the queue exists to prevent.
+    const semDossie: readonly PriorityEntry[] = Array.from(
+      { length: 4 },
+      (_unused, index) => ({
+        dossierId: null,
+        externalId: `NOVA-${index}`,
+        category: "DADOS_INSUFICIENTES" as const,
+        operationalPriority: 3,
+        score: 0,
+      }),
+    );
+
+    const first = listPriorities(semDossie, { cursor: null, limit: 2 });
+    const second = listPriorities(semDossie, {
+      cursor: first.nextCursor,
+      limit: 2,
+    });
+
+    expect(first.items.map((entry) => entry.externalId)).toEqual([
+      "NOVA-0",
+      "NOVA-1",
+    ]);
+    expect(second.items.map((entry) => entry.externalId)).toEqual([
+      "NOVA-2",
+      "NOVA-3",
+    ]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("orders a dossier-less row against a classified one without ambiguity", () => {
+    const misto: readonly PriorityEntry[] = [
+      {
+        dossierId: null,
+        externalId: "NOVA-001",
+        category: "DADOS_INSUFICIENTES",
+        operationalPriority: 3,
+        score: 0,
+      },
+      ...carteira,
+    ];
+
+    const page = listPriorities(misto, { cursor: null, limit: 100 });
+
+    // Priority 3 is the bottom of the policy's table, so it sorts last.
+    expect(page.items[page.items.length - 1].externalId).toBe("NOVA-001");
+    expect(page.items).toHaveLength(8);
   });
 
   it("is stable when an entry is added behind the cursor", () => {

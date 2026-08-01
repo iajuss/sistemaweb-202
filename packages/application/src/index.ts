@@ -8,6 +8,14 @@ export {
 export { commitWalletImport, previewWalletImport } from "./import-wallet.js";
 export { composeDossierForDebtor } from "./compose-dossier.js";
 export { listPriorities, lookupDossier } from "./lookup-dossier.js";
+export { buildWalletQueue } from "./list-wallet-queue.js";
+export type {
+  BuildWalletQueueInput,
+  ClassifiedDebtor,
+  WalletClassificationReader,
+  WalletTitleLister,
+  WalletTitleRow,
+} from "./list-wallet-queue.js";
 export type {
   LookupDossierInput,
   LookupDossierResult,
