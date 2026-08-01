@@ -236,7 +236,37 @@ uma **categoria**, nunca uma nota mais baixa. Um devedor sobre quem não se
 conseguiu ler nada não vai para o fim da fila como se fosse bom pagador; ele sai
 da fila de cobrança e vai para a de coletar mais dados.
 
-## 6. ★ Momento 4 — o que o sistema recusa fazer (1 min)
+## 6. A carteira entrando pela tela, com a quarentena à vista (1 min)
+
+Feche o laço de uso: até aqui a carteira apareceu semeada por comando, e a
+pergunta óbvia de quem avalia é **como o cliente carrega a dele**.
+
+Abra `http://127.0.0.1:3000/carteiras/carteira-demo/importacoes` e envie
+`fixtures/wallet/invalid-cpf.csv` — três linhas, uma com dígito verificador que
+não fecha.
+
+O que apontar, na ordem em que a tela mostra:
+
+- **A conferência não gravou nada.** Não é promessa da tela: a função de
+  dry-run não recebe store nenhum, então não tem como escrever. Só o segundo
+  clique importa.
+- **A linha ruim aparece por número e motivo** — linha 3, `CPF_INVALIDO` —, e
+  **sem CPF nenhum**, porque o relatório é lido por uma pessoa e pode ser
+  exportado. As outras duas entram: um arquivo nunca é recusado inteiro por
+  causa de uma linha, e nada é descartado em silêncio.
+- **Valor e vencimento em português**: `R$ 1.500,00` e `15/06/2026`. A
+  formatação só acontece na borda; o domínio segue com centavos inteiros.
+- **É o mesmo importador do passo 1.** A tela chama exatamente as funções que o
+  `pnpm demo` chamou para semear, pela mesma autorização `IMPORT_WALLET`. Não
+  existe um segundo caminho de importação para manter em dia.
+
+Se perguntarem por que a interface é tão simples: é decisão, e está escrita em
+[`docs/limitacoes-v1.md`](limitacoes-v1.md). O enunciado nomeia um agente de AI
+como consumidor e não pede interface; as telas consomem os mesmos handlers e a
+mesma autorização da API, então a UI é camada de entrega sobre uma fonte de
+verdade só.
+
+## 7. ★ Momento 4 — o que o sistema recusa fazer (1 min)
 
 Fecha com honestidade, e isso conta a favor:
 
@@ -254,7 +284,7 @@ Fecha com honestidade, e isso conta a favor:
   [`docs/limitacoes-v1.md`](limitacoes-v1.md), com o que cada item é, por que não
   é alcançável hoje e o que dispara o fechamento.
 
-Se perguntarem "e os testes": 534 unitários, que rodam sem Docker, e 13 de
+Se perguntarem "e os testes": 585 unitários, que rodam sem Docker, e 13 de
 integração contra o PostgreSQL real — não contra mock.
 
 ```bash
@@ -282,8 +312,12 @@ Isso para os containers e **preserva** o volume do banco.
 | 2 | Tela de prioridades | 1 min |
 | 3 | Tela do dossiê — **momentos 1 e 2** | 3 min |
 | 4 | Endpoint de prompt e a recusa de consulta por CPF | 2 min |
-| 5 | Os quatro estados de fonte — **momento 3** | 2 min |
-| 6 | O que o sistema recusa fazer — **momento 4** | 1 min |
+| 5 | Os quatro estados de fonte — **momento 3** | 1,5 min |
+| 6 | Tela de importação, com a quarentena à vista | 1 min |
+| 7 | O que o sistema recusa fazer — **momento 4** | 0,5 min |
+
+Se o tempo apertar, o passo 6 é o que mais rende cortado pela metade: mostre a
+conferência e a linha em quarentena, e pule a confirmação.
 
 ## Se algo der errado ao vivo
 

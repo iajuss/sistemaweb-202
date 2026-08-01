@@ -78,7 +78,7 @@ As rotas de API (`/api/...`) **não** abrem no navegador: elas exigem o cabeçal
 
 ## Subindo tudo do zero
 
-A sequência abaixo vai de um clone limpo até os três endpoints e as duas telas
+A sequência abaixo vai de um clone limpo até os três endpoints e as três telas
 respondendo.
 Cada passo é um comando; nenhum deles pede confirmação.
 
@@ -150,7 +150,7 @@ dossiê por devedor, classifica cada um e então sobe a API em
 
 **Resposta correta:** o console imprime a carteira semeada, a fila de
 prioridades e, no fim, **os endereços de tudo que subiu** — os três endpoints e
-as duas telas. É esta a saída inteira:
+as três telas. É esta a saída inteira:
 
 ```
 Carteira carteira-demo do tenant tenant-demo
@@ -170,6 +170,7 @@ Endpoints:
 Telas:
   http://127.0.0.1:3000/carteiras/carteira-demo/prioridades
   http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1
+  http://127.0.0.1:3000/carteiras/carteira-demo/importacoes
 
 Toda requisição precisa do cabeçalho: Authorization: Bearer demo
 No navegador, as telas pedem usuário e senha: use demo / demo. Qualquer par serve — nada é conferido, e esta identidade de desenvolvimento não autentica ninguém (ADR 021).
@@ -309,7 +310,7 @@ do sinal.
 Os três endpoints respondem `cache-control: no-store` — o dossiê é dado pessoal
 de pessoa identificada. Sem o cabeçalho `Authorization` a resposta é 401.
 
-### 9. As duas telas
+### 9. As três telas
 
 Cole no navegador, com o `pnpm demo` do passo 5 no ar:
 
@@ -317,9 +318,11 @@ Cole no navegador, com o `pnpm demo` do passo 5 no ar:
 |---|---|
 | **Prioridades da carteira** | `http://127.0.0.1:3000/carteiras/carteira-demo/prioridades` |
 | **Dossiê** | `http://127.0.0.1:3000/carteiras/carteira-demo/dossies/dossie-1` |
+| **Importar carteira** | `http://127.0.0.1:3000/carteiras/carteira-demo/importacoes` |
 
 Da fila, clicar num título leva ao dossiê daquele devedor — `dossie-1`,
-`dossie-2` e `dossie-3` são os três que o passo 5 semeou.
+`dossie-2` e `dossie-3` são os três que o passo 5 semeou. O link "Importar
+carteira", no topo da fila, leva à terceira tela.
 
 #### Credenciais
 
@@ -373,6 +376,42 @@ fonte, e a explicação por extenso. O que vale reparar:
   `TEMA_NAO_CONFIGURADO`, porque um padrão seria a marca de quem desenvolveu com
   outro nome.
 
+#### A tela de importação, em dois passos
+
+É a tela que fecha o laço de uso: antes dela, carregar uma carteira exigia rodar
+um script, o que é a resposta errada para "como o cliente carrega a carteira"
+num sistema web.
+
+1. **Escolha um arquivo e clique em "Conferir antes de importar".** Para ver a
+   quarentena funcionando, use `fixtures/wallet/invalid-cpf.csv`: três linhas,
+   uma delas com dígito verificador que não fecha.
+2. **Confira e confirme.** A conferência mostra o que seria aceito — título,
+   devedor, valor em reais e vencimento — e o que iria para quarentena, com
+   **número da linha e motivo**. Só então o botão importa.
+
+O que vale reparar aqui:
+
+- **A conferência não grava nada.** Não é promessa desta tela: `previewWalletImport`
+  não recebe store nenhum, então não tem como escrever. Recarregar a página sem
+  confirmar não deixa rastro no banco.
+- **Nenhum CPF aparece**, nem na lista aceita nem na quarentena. A linha em
+  quarentena é identificada por número e motivo, porque o relatório é lido por
+  uma pessoa e pode ser exportado.
+- **Uma linha ruim não derruba o arquivo.** O resto entra, e nada é descartado
+  em silêncio.
+- **Reimportar não duplica.** O título é identificado pelo `id_externo`; a
+  segunda passagem atualiza em vez de criar. Três parcelas do mesmo devedor são
+  três títulos, não duplicata.
+- **A importação é registrada**: quem, quando, hash do arquivo, linhas aceitas,
+  linhas em quarentena e a contagem por motivo.
+- **É o mesmo importador do passo 5.** A tela chama `previewWalletImport` e
+  `commitWalletImport`, exatamente as funções que o `pnpm demo` chama para
+  semear — e passa pela mesma autorização (`IMPORT_WALLET`) que a API exigiria.
+
+Formatos aceitos: CSV (UTF-8, UTF-8 com BOM ou CP1252; delimitador `;` ou `,`;
+decimal com vírgula) e XLSX. O formato é decidido pelos **bytes** do arquivo, não
+pela extensão nem pelo `content-type` que o navegador mandou.
+
 ### 10. Derrubar
 
 ```bash
@@ -391,7 +430,7 @@ As suítes são separadas porque exigem coisas diferentes:
 pnpm test:unit
 ```
 
-534 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
+585 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
 nada no ar.
 
 ```bash
@@ -417,9 +456,10 @@ pnpm generate:contracts
 ```
 
 `lint` é eslint com zero warnings, `typecheck` é `tsc` estrito sem emit, e
-`generate:contracts` regenera JSON Schema e OpenAPI a partir do Zod. O contrato
-publicado nunca é escrito à mão: se `generate:contracts` produzir diferença, o
-código mudou o contrato e a diferença é a mudança.
+`generate:contracts` regenera JSON Schema, OpenAPI **e a página legível do
+contrato** ([`docs/openapi.html`](docs/openapi.html)) a partir do Zod. O
+contrato publicado nunca é escrito à mão: se `generate:contracts` produzir
+diferença, o código mudou o contrato e a diferença é a mudança.
 
 ## Dados
 

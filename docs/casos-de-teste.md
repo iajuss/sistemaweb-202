@@ -62,6 +62,27 @@ de `packages/domain/src/identity/resolver.test.ts`.
 | Sem CPF no prompt | O texto que vai ao agente não carrega CPF em forma nenhuma | `prompt.test.ts` |
 | Papéis separados | Auditoria sem acesso operacional, operador sem trilha nem evidência de match | `packages/domain/src/authorization.test.ts` e `role-view.test.ts` |
 
+## Importação de carteira pela tela
+
+| Caso | O que prova | Onde |
+|---|---|---|
+| A conferência não grava | O arquivo é conferido inteiro e o store não recebe nada — nem título, nem registro de importação | `apps/web/src/http/import-routes.test.ts` — *lists the accepted titles without saving one* |
+| Quarentena por linha e motivo | A linha com dígito verificador que não fecha aparece por número e por `CPF_INVALIDO`, e o resto do arquivo entra | idem — *shows the quarantined line by number and by reason* |
+| Nenhum CPF na tela | Nem inteiro, nem pontuado, nem o fragmento 4–9, em nenhuma das duas tabelas | idem — *never shows a CPF, accepted or quarantined* |
+| Importa o que foi conferido | O commit grava exatamente as linhas que a conferência mostrou aceitas | idem — *imports exactly the rows the operator saw accepted* |
+| Preparo não se replica | O token da conferência é gasto no primeiro commit; o segundo é recusado | idem — *refuses to replay a token already committed* |
+| Preparo não atravessa tenant | Um token conferido por um tenant não é devolvido a outro, nem a outra carteira do mesmo tenant | `apps/web/src/http/import-staging.test.ts` |
+| Upload truncado é recusado | Sem o delimitador de fecho, o corpo não vira carteira pela metade | `apps/web/src/http/multipart.test.ts` — *refuses a truncated upload* |
+| Formato vem dos bytes | Um XLSX é reconhecido pela assinatura zip, não pela extensão nem pelo `content-type` do navegador | `packages/adapters/src/wallet-importers/wallet-file.test.ts` |
+| Upload real por socket | `FormData` de verdade sobre `node:http`, não fixture de upload | `apps/web/src/http/server.test.ts` — bloco *the import screen answers over a socket* |
+
+## Guardas de runtime e o invariante que as substitui
+
+| Caso | O que prova | Onde |
+|---|---|---|
+| Cinco guardas alcançáveis | Cada guarda removida derruba **exatamente um** teste nomeado (ver [`limitacoes-v1.md`](limitacoes-v1.md)) | `authorize-actor.test.ts`, `tenant-repository.test.ts`, `authorization.test.ts` |
+| Emissor único | `AuthorizedOperation` é construído num lugar só, e contexto e identidade saem da mesma referência — o que tornava duas guardas inalcançáveis (ADR 026) | `packages/application/src/authorize-actor.test.ts` — bloco *the single issuer of AuthorizedOperation* |
+
 ## Dinheiro
 
 | Caso | Esperado | Onde |

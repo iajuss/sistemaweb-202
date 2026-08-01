@@ -27,6 +27,7 @@ O consumidor final é um **agente de AI**, não um humano lendo tela. O contrato
 - **Registro QSA de não-cliente não é persistido, indexado, logado nem intermediado em arquivo.**
 - **Snapshot embute seus campos.** Expurgo de observação não o altera, e chave destruída lê `ELIMINADO_A_PEDIDO_DO_TITULAR`.
 - **Produção é proibida até a validação fail-closed de JWT/JWKS** (issuer, audience, expiração, rotação). Ver [ADR 021](docs/decisions/021-identidade-verificada-e-proibicao-de-producao-sem-jwt-jwks.md).
+- **Emissor único de `AuthorizedOperation`**, montando contexto e identidade da mesma referência. Guarda que nenhum teste consegue derrubar é garantia falsa: ou sai, com o invariante que a tornava inalcançável afirmado no lugar, ou a fronteira muda para que o teste exista. Ver [ADR 026](docs/decisions/026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md).
 
 ## Dados pessoais e LGPD
 
@@ -63,9 +64,11 @@ distintos**, sem fusão de campos: ausência na Lista não é ausência de dívi
 A Lista nunca é raspada; a entrada é upload manual do operador.
 
 **Mapeados e não integrados:** Portal da Transparência (CEIS/CEAF), QSA/RFB,
-Serasa, Boa Vista, Quod. Adapter stub documentado, **jamais simulado como
-funcional**. Reduzido a uma fonte por prazo de entrega — o enunciado autoriza
-fonte mapeada e não integrada. Não adicione fontes sem me perguntar.
+CENPROT, DataJud, Serasa, Boa Vista, Quod. Adapter stub documentado, **jamais
+simulado como funcional**. Reduzido a uma fonte por prazo de entrega — o
+enunciado autoriza fonte mapeada e não integrada. Cada uma tem o que entrega,
+acesso, custo, base legal e veredito em [`docs/fontes.md`](docs/fontes.md);
+silêncio sobre uma fonte não é resposta. Não adicione fontes sem me perguntar.
 
 ### Armadilhas confirmadas na amostra real da PGFN
 
@@ -105,9 +108,12 @@ fonte mapeada e não integrada. Não adicione fontes sem me perguntar.
 - `docs/decisions/` — ADRs, com índice em `README.md`
 - `docs/fontes.md` — matriz de fontes (o que entrega, custo, base legal, integrar ou não)
 - `docs/lgpd.md` — base legal por fonte e finalidade, retenção, expurgo
-- `docs/limitacoes-v1.md` — pendências conhecidas e assumidas
+- `docs/limitacoes-v1.md` — pendências conhecidas, assumidas, e as decisões de escopo (UI fina, sem deploy)
 - `docs/casos-de-teste.md` — casos conferíveis à mão e onde cada um mora
 - `docs/demonstracao.md` — roteiro de demonstração de 10 minutos
+- `docs/proximos-passos.md` — como a v1 sustenta o que vem depois
+- `docs/openapi.html` — contrato legível, gerado por `pnpm generate:contracts`
+- `docs/img/` — capturas das três telas, referenciadas no README
 - `.agents/plans/` — planos de implementação
 
 ## Comandos
@@ -124,7 +130,7 @@ pnpm test:unit                   # só unitários, sem Docker
 pnpm test:integration            # só PostgreSQL/RLS, exige o Compose
 pnpm lint                        # eslint, zero warnings
 pnpm typecheck                   # tsc strict, sem emit
-pnpm generate:contracts          # JSON Schema + OpenAPI a partir do Zod
+pnpm generate:contracts          # JSON Schema + OpenAPI + docs/openapi.html, a partir do Zod
 pnpm dev                         # Next.js
 pnpm worker                      # entrypoint de workers
 pnpm compose:down                # derruba o stack

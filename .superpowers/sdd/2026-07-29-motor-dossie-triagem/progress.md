@@ -1533,3 +1533,107 @@ depende do defeito M-3 continuar aberto. Fechar M-3 exige reescrever esse teste.
 
 Pendências intocadas, por instrução: I-2, M-1, M-3, P-1 e C-1. Descrições
 reconferidas contra o sistema depois do merge e continuam válidas.
+
+---
+
+# Sessão de fechamento — 2026-08-01
+
+Entrega no domingo 23:59. Prioridade: fechar com segurança, não acrescentar
+escopo. Trabalho direto na `main`, modo inline.
+
+## Estado encontrado
+
+`main` local estava **um commit atrás** de `origin/main`: o merge do PR #1
+(`e515435`) nunca tinha sido puxado para cá, o que fazia a árvore de trabalho
+parecer conter só documentação. O PR #2 era `codex/entrega-final` (`24127b0`),
+três commits à frente, com o diff que prometia — `.gitattributes`, `progress.md`,
+README, `limitacoes-v1.md` e três arquivos de teste.
+
+`gh` não está instalado nesta máquina, então o PR #2 foi fechado por merge
+`--no-ff` local e push: o GitHub marca como merged quando os commits do head
+chegam à base.
+
+**O worktree removido tinha um arquivo não commitado**: `docs/proximos-passos.md`,
+que teria sido destruído pelo `--force`. Foi resgatado para a `main` antes da
+remoção (`5abcda1`). Junto dele havia um `pnpm demo` de ontem ainda rodando,
+segurando o diretório e a porta 3000.
+
+## O que esta sessão fechou
+
+### 1. Terceira tela: importação de carteira com quarentena
+
+O laço de uso estava aberto — carregar carteira exigia rodar script, que é a
+resposta errada para "como o cliente carrega a dele" num sistema web.
+
+Três requisições: formulário, conferência que não grava, commit dos mesmos
+bytes conferidos. **Nenhum importador novo**: a tela chama `previewWalletImport`
+e `commitWalletImport`, as mesmas funções do seeder, pela mesma autorização
+`IMPORT_WALLET`.
+
+Peças novas, cada uma com teste vermelho observado antes da implementação:
+
+| Peça | Por que existe |
+|---|---|
+| `wallet-importers/wallet-file.ts` | O formato sai dos **bytes** (assinatura zip), não da extensão nem do `content-type` que o navegador mandou |
+| `http/multipart.ts` | `node:http` entrega upload cru. Decodificar como texto para achar o limite corromperia o workbook: o payload nunca vira string |
+| `http/import-staging.ts` | A conferência não pode gravar e o commit tem de importar os bytes conferidos. Token aleatório, escopado por tenant+carteira, gasto no uso e com prazo — a alternativa (devolver o arquivo ao navegador em campo oculto) poria uma planilha de CPFs no markup |
+
+O transporte passou a decidir o corpo pelo `content-type` declarado: upload fica
+`Uint8Array` (teto próprio de 8 MiB), formulário vira registro de campos, e o
+resto continua JSON.
+
+### 2. Um defeito que só a execução real pegou
+
+A tela autorizava `IMPORT_WALLET` e lia o tema do tenant **com essa operação**,
+mas `PrismaTenantThemeRepository` exige uma operação `READ_ACTIONABLE`. Os 20
+testes passavam porque o fixture de tema aceitava qualquer operação; a página de
+verdade respondia **400 `OPERATION_ACTION_FORBIDDEN`**.
+
+Corrigido na ordem certa: o fixture passou a espelhar o repositório real (16
+testes ficaram vermelhos), e só então a tela passou a pedir uma operação de
+leitura própria — em vez de afrouxar o que o repositório aceita.
+
+**A lição, para o ledger:** fixture mais permissiva que o adapter real esconde
+exatamente a classe de defeito que a fatia introduz. Rodar a aplicação foi o que
+achou; nenhum teste teria achado.
+
+### 3. I-4 fechado
+
+As duas guardas vazias por construção **saíram**, e no lugar ficou o invariante
+que as tornava inalcançáveis: emissor único de `AuthorizedOperation`, montando
+contexto e identidade da mesma referência, e nenhuma função exportada aceitando
+`AuthorizedWalletContext`.
+
+Três mutações foram aplicadas ao fonte e executadas — segundo emissor, contexto
+montado de uma cópia do ator, função exportada recebendo contexto —, e cada uma
+derruba exatamente o teste que a nomeia. Raciocínio e alternativas descartadas
+no [ADR 026](../../../docs/decisions/026-guarda-inalcancavel-vira-invariante-de-emissor-unico.md).
+
+Uma correção de premissa registrada: a afirmação "nenhuma função do módulo
+aceita `AuthorizedWalletContext`" era **falsa** — `actorWithRuntimeGrant` aceita
+uma. A propriedade verdadeira é mais estreita: nenhuma função **exportada**
+aceita. Passagem interna é segura enquanto nada entra de fora.
+
+### 4. Fontes, escopo e material de entrega
+
+- `fontes.md` e `lgpd.md` ganharam **CENPROT e DataJud na tabela de base legal**,
+  onde faltavam. Agora cada fonte que o enunciado nomeia tem as cinco coisas:
+  entrega, acesso, custo, base legal e veredito. Uma tabela de cobertura no topo
+  mapeia cada fonte do enunciado para onde ela está respondida.
+- `limitacoes-v1.md` ganhou as duas **decisões de escopo** — por que a interface
+  é fina e por que não há deploy — e o registro explícito de que **a coleta da
+  PGFN nunca foi exercida contra a fonte viva**, com a tabela do que foi
+  conferido contra export real e do que não foi (F-6).
+- `docs/openapi.html`: contrato legível, autocontido, gerado por
+  `pnpm generate:contracts` a partir do mesmo documento que o runtime valida.
+  Sem CDN — um viewer de terceiro seria dependência nova pela porta dos fundos.
+  **Publicar é decisão do dono do repositório e não foi feito nesta sessão.**
+
+## Números
+
+585 unitários (eram 534), lint e typecheck limpos, `generate:contracts` sem
+deriva. As três telas conferidas rodando contra o Compose real.
+
+## Pendências intocadas, por instrução
+
+I-2, M-1, M-3, P-1 e C-1.
