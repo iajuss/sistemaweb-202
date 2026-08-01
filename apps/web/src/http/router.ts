@@ -15,8 +15,10 @@ import {
 } from "@panella/contracts";
 import {
   authorizeOperation,
+  commitWalletImport,
   listPriorities,
   lookupDossier,
+  previewWalletImport,
   type AuthenticatedOperationIdentity,
   type AuthorizedOperation,
   type DebtorObservationReader,
@@ -25,11 +27,18 @@ import {
   type PriorityEntry,
   type WalletAuthorizationRepository,
   type WalletDebtorReader,
+  type WalletFileParser,
+  type WalletImportStore,
   type WalletTitleLookup,
 } from "@panella/application";
 
+import type { WalletImportStaging } from "./import-staging.js";
+import { parseMultipartFormData } from "./multipart.js";
 import {
   renderDossierPage,
+  renderImportFormPage,
+  renderImportPreviewPage,
+  renderImportReportPage,
   renderPrioritiesPage,
   type TenantTheme,
 } from "./views.js";
@@ -116,6 +125,14 @@ export interface RouterDependencies {
   readonly observations: DebtorObservationReader;
   readonly snapshots: DossierSnapshotStore & DossierSnapshotReader;
   readonly priorities: WalletPriorityReader;
+  /**
+   * The file format is a plugable detail, chosen from the bytes and never from
+   * anything the request claims the file is.
+   */
+  readonly walletFiles: WalletFileParser;
+  readonly imports: WalletImportStore;
+  /** Holds the previewed file between the dry run and the commit. */
+  readonly staging: WalletImportStaging;
   /** White label: the pages have no name, mark or colour of their own. */
   readonly theme: TenantThemeReader;
   readonly now?: () => Date;
@@ -139,6 +156,8 @@ const PRIORITIES = /^\/api\/v1\/carteiras\/([^/]+)\/prioridades$/;
 const PROMPT = /^\/api\/v1\/dossies\/([^/]+)\/prompt$/;
 const UI_PRIORITIES = /^\/carteiras\/([^/]+)\/prioridades$/;
 const UI_DOSSIER = /^\/carteiras\/([^/]+)\/dossies\/([^/]+)$/;
+const UI_IMPORT = /^\/carteiras\/([^/]+)\/importacoes$/;
+const UI_IMPORT_COMMIT = /^\/carteiras\/([^/]+)\/importacoes\/confirmar$/;
 
 function html(status: number, body: string): HttpResponse {
   return { status, body, contentType: "text/html; charset=utf-8" };
@@ -443,13 +462,150 @@ export function createRouter(
     return html(200, renderDossierPage(theme, walletId, view));
   }
 
+  /**
+   * The import screen, in three requests: a form, a dry run that writes
+   * nothing, and a commit of the very file the dry run showed.
+   *
+   * It adds no importer. `previewWalletImport` and `commitWalletImport` are the
+   * same functions the seeding script calls, reached through the same
+   * `IMPORT_WALLET` authorization the API would need — which is the whole
+   * reason this can be a screen at all and not a second code path.
+   */
+  async function authorizedImport(
+    identity: AuthenticatedOperationIdentity,
+    walletId: string,
+  ): Promise<
+    | { readonly ok: true; readonly operation: AuthorizedOperation; readonly theme: TenantTheme }
+    | { readonly ok: false; readonly response: HttpResponse }
+  > {
+    const operation = await authorizeOperation(
+      identity,
+      walletId,
+      "IMPORT_WALLET",
+      deps.authorization,
+    );
+    if (!operation) {
+      return { ok: false, response: problem(403, "IMPORTACAO_NAO_AUTORIZADA") };
+    }
+
+    const theme = await themeFor(operation);
+    if (!theme) {
+      return { ok: false, response: problem(500, "TEMA_NAO_CONFIGURADO") };
+    }
+    return { ok: true, operation, theme };
+  }
+
+  async function handleImportPage(
+    request: HttpRequest,
+    identity: AuthenticatedOperationIdentity,
+    walletId: string,
+  ): Promise<HttpResponse> {
+    if (request.method !== "GET" && request.method !== "POST") {
+      return problem(405, "METODO_NAO_PERMITIDO");
+    }
+
+    const authorized = await authorizedImport(identity, walletId);
+    if (!authorized.ok) {
+      return authorized.response;
+    }
+    const { operation, theme } = authorized;
+
+    if (request.method === "GET") {
+      return html(200, renderImportFormPage(theme, walletId));
+    }
+
+    let uploaded: { readonly filename: string; readonly bytes: Uint8Array };
+    try {
+      uploaded = fileFrom(request);
+    } catch (error) {
+      // The code, never the file: a rejected upload holds CPFs, and echoing
+      // any of it into the page would be the first step to echoing it into a
+      // log.
+      return html(
+        400,
+        renderImportFormPage(theme, walletId, codeOf(error, "UPLOAD_INVALIDO")),
+      );
+    }
+
+    try {
+      // The dry run has no store parameter to pass, so it cannot write. That
+      // is a property of the function, not a promise made by this handler.
+      const preview = previewWalletImport(uploaded.bytes, deps.walletFiles);
+      const token = deps.staging.stage(operation, uploaded);
+      return html(
+        200,
+        renderImportPreviewPage(
+          theme,
+          walletId,
+          uploaded.filename,
+          preview,
+          token,
+        ),
+      );
+    } catch (error) {
+      return html(
+        400,
+        renderImportFormPage(theme, walletId, codeOf(error, "ARQUIVO_INVALIDO")),
+      );
+    }
+  }
+
+  async function handleImportCommit(
+    request: HttpRequest,
+    identity: AuthenticatedOperationIdentity,
+    walletId: string,
+  ): Promise<HttpResponse> {
+    if (request.method !== "POST") {
+      return problem(405, "METODO_NAO_PERMITIDO");
+    }
+
+    const authorized = await authorizedImport(identity, walletId);
+    if (!authorized.ok) {
+      return authorized.response;
+    }
+    const { operation, theme } = authorized;
+
+    const token = fieldOf(request.body, "preparo");
+    const staged = token ? deps.staging.take(operation, token) : null;
+    if (!staged) {
+      // Expired, already spent, or issued to another wallet. The operator gets
+      // the form back rather than a commit of a file nobody just previewed.
+      return html(
+        400,
+        renderImportFormPage(theme, walletId, "PREPARO_NAO_ENCONTRADO"),
+      );
+    }
+
+    try {
+      const report = await commitWalletImport({
+        identity,
+        walletId,
+        bytes: staged.bytes,
+        parser: deps.walletFiles,
+        authorization: deps.authorization,
+        store: deps.imports,
+        now,
+      });
+      return html(200, renderImportReportPage(theme, walletId, report));
+    } catch (error) {
+      const codigo = codeOf(error, "ERRO_INTERNO");
+      return codigo === "IMPORTACAO_NAO_AUTORIZADA"
+        ? problem(403, codigo)
+        : html(500, renderImportFormPage(theme, walletId, codigo));
+    }
+  }
+
   return async function route(request: HttpRequest): Promise<HttpResponse> {
     const lookup = LOOKUP.exec(request.path);
     const priorities = PRIORITIES.exec(request.path);
     const prompt = PROMPT.exec(request.path);
     const uiPriorities = UI_PRIORITIES.exec(request.path);
     const uiDossier = UI_DOSSIER.exec(request.path);
-    const page = Boolean(uiPriorities ?? uiDossier);
+    const uiImport = UI_IMPORT.exec(request.path);
+    const uiImportCommit = UI_IMPORT_COMMIT.exec(request.path);
+    const page = Boolean(
+      uiPriorities ?? uiDossier ?? uiImport ?? uiImportCommit,
+    );
     if (!lookup && !priorities && !prompt && !page) {
       return problem(404, "ROTA_NAO_ENCONTRADA");
     }
@@ -483,8 +639,54 @@ export function createRouter(
         uiDossier[2],
       );
     }
+    if (uiImportCommit) {
+      return handleImportCommit(request, identity, uiImportCommit[1]);
+    }
+    if (uiImport) {
+      return handleImportPage(request, identity, uiImport[1]);
+    }
     return handlePrompt(request, identity, (prompt as RegExpExecArray)[1]);
   };
+}
+
+function codeOf(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message !== ""
+    ? error.message
+    : fallback;
+}
+
+/**
+ * The uploaded file, or a refusal. The part is found by its filename rather
+ * than by its field name: a browser that renames the field still uploaded a
+ * file, and a field without one is not a file however it is named.
+ */
+function fileFrom(request: HttpRequest): {
+  readonly filename: string;
+  readonly bytes: Uint8Array;
+} {
+  const contentType = request.headers["content-type"] ?? "";
+  if (!/^multipart\/form-data/i.test(contentType)) {
+    throw new Error("UPLOAD_INVALIDO");
+  }
+  if (!(request.body instanceof Uint8Array)) {
+    throw new Error("UPLOAD_INVALIDO");
+  }
+
+  const file = parseMultipartFormData(contentType, request.body).find(
+    (part) => part.filename !== null && part.bytes.length > 0,
+  );
+  if (!file) {
+    throw new Error("ARQUIVO_AUSENTE");
+  }
+  return { filename: file.filename ?? "carteira", bytes: file.bytes };
+}
+
+function fieldOf(body: unknown, name: string): string | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const value = (body as Record<string, unknown>)[name];
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 /**

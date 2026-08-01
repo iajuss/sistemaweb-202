@@ -1,8 +1,16 @@
-import { formatBrlFromCents, type RoleDossierView } from "@panella/contracts";
-import type { PriorityEntry } from "@panella/application";
+import {
+  formatBrlFromCents,
+  formatIsoDate,
+  type RoleDossierView,
+} from "@panella/contracts";
+import type {
+  PriorityEntry,
+  WalletImportPreview,
+  WalletImportReport,
+} from "@panella/application";
 
 /**
- * The two pages, server-rendered as strings. No framework, no client bundle
+ * The three pages, server-rendered as strings. No framework, no client bundle
  * and no new dependency: the same handlers the API uses produce the data, and
  * this file only decides how it reads.
  *
@@ -75,6 +83,10 @@ a { color: var(--primaria); }
 .retido { color: #7a5c00; background: #fff6d9; padding: 0 .3rem; }
 .nao-aplicado { color: #6b7680; }
 ul.evidencia { margin: .25rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
+.erro { color: #8a1c1c; background: #fdeaea; padding: .6rem .75rem; }
+code { font: .9em ui-monospace, monospace; }
+button { font: inherit; background: var(--primaria); color: #fff; border: 0; padding: .55rem 1rem; cursor: pointer; }
+input[type=file] { font: inherit; }
 footer { max-width: 60rem; margin: 0 auto; padding: 0 1.5rem 2rem; font-size: .8rem; color: #55606b; }
 </style>
 </head>
@@ -123,7 +135,172 @@ ${linhas}
     theme,
     "Prioridades",
     `<h1>Prioridades da carteira ${escape(walletId)}</h1>
+<p><a href="/carteiras/${encodeURIComponent(walletId)}/importacoes">Importar carteira</a></p>
 ${entries.length === 0 ? vazio : tabela}`,
+  );
+}
+
+/**
+ * Why the reason codes are spelled out on the page: the operator who reads
+ * this is the person who has to go and fix the spreadsheet. `CPF_INVALIDO` is
+ * what the report and the audit record carry; the sentence next to it is what
+ * makes the line actionable without a manual.
+ */
+const MOTIVOS: Readonly<Record<string, string>> = Object.freeze({
+  ID_EXTERNO_AUSENTE: "a linha não traz identificador do título",
+  ID_EXTERNO_DUPLICADO: "o mesmo identificador aparece em outra linha do arquivo",
+  NOME_AUSENTE: "a linha não traz o nome do devedor",
+  CPF_INVALIDO: "o dígito verificador do CPF não fecha",
+  VALOR_INVALIDO: "o valor não é um número reconhecível",
+  VENCIMENTO_INVALIDO: "o vencimento não é uma data no formato AAAA-MM-DD",
+});
+
+function importLayout(
+  theme: TenantTheme,
+  walletId: string,
+  corpo: string,
+): string {
+  return layout(
+    theme,
+    "Importar carteira",
+    `<p><a href="/carteiras/${encodeURIComponent(walletId)}/prioridades">← Prioridades da carteira</a></p>
+<h1>Importar carteira ${escape(walletId)}</h1>
+${corpo}`,
+  );
+}
+
+export function renderImportFormPage(
+  theme: TenantTheme,
+  walletId: string,
+  erro?: string,
+): string {
+  const aviso = erro
+    ? `<p class="erro">O arquivo não foi lido: <strong>${escape(erro)}</strong>. Nada foi importado.</p>`
+    : "";
+
+  return importLayout(
+    theme,
+    walletId,
+    `${aviso}
+<form class="cartao" method="post" action="/carteiras/${encodeURIComponent(walletId)}/importacoes" enctype="multipart/form-data">
+<p><span class="rotulo">Arquivo da carteira</span></p>
+<p><input type="file" name="arquivo" accept=".csv,.xlsx" required></p>
+<p><button type="submit">Conferir antes de importar</button></p>
+</form>
+<p>Uma linha do arquivo é <strong>um título</strong>, não um devedor: três
+parcelas do mesmo devedor são três linhas, e o devedor emerge da agregação.
+Colunas esperadas: <code>id_externo</code>, <code>nome</code>, <code>cpf</code>,
+<code>valor</code> e <code>vencimento</code>. O arquivo pode ser CSV ou XLSX.</p>
+<p>O próximo passo <strong>não grava nada</strong>: mostra o que seria aceito e
+o que iria para quarentena, e só então pergunta se pode importar.</p>`,
+  );
+}
+
+function acceptedTable(preview: WalletImportPreview): string {
+  if (preview.accepted.length === 0) {
+    return `<p>Nenhuma linha aceitável neste arquivo.</p>`;
+  }
+
+  const linhas = preview.accepted
+    .map(
+      (row) => `<tr>
+<td class="numero">${row.rowNumber}</td>
+<td>${escape(row.externalId)}</td>
+<td>${escape(row.name)}</td>
+<td class="numero">${escape(formatBrlFromCents(row.amount.toCents()))}</td>
+<td>${escape(formatIsoDate(row.dueDate.toISOString()))}</td>
+</tr>`,
+    )
+    .join("\n");
+
+  return `<table>
+<thead><tr><th>Linha</th><th>Título</th><th>Devedor</th><th>Valor</th><th>Vencimento</th></tr></thead>
+<tbody>
+${linhas}
+</tbody>
+</table>`;
+}
+
+/**
+ * The quarantine table carries a line number and a reason, and nothing else.
+ * It is written to be read by a person and exported by an operator, so a CPF —
+ * whole or masked — must never reach it. The record it renders does not carry
+ * one, which is the structural half of the same rule.
+ */
+function quarantineTable(preview: WalletImportPreview): string {
+  if (preview.quarantined.length === 0) {
+    return `<p>Nenhuma linha em quarentena.</p>`;
+  }
+
+  const linhas = preview.quarantined
+    .map(
+      (row) => `<tr>
+<td class="numero">${row.rowNumber}</td>
+<td><code>${escape(row.reason)}</code></td>
+<td>${escape(MOTIVOS[row.reason] ?? "motivo não descrito")}</td>
+</tr>`,
+    )
+    .join("\n");
+
+  return `<table>
+<thead><tr><th>Linha</th><th>Motivo</th><th>O que corrigir</th></tr></thead>
+<tbody>
+${linhas}
+</tbody>
+</table>`;
+}
+
+export function renderImportPreviewPage(
+  theme: TenantTheme,
+  walletId: string,
+  filename: string,
+  preview: WalletImportPreview,
+  token: string,
+): string {
+  return importLayout(
+    theme,
+    walletId,
+    `<div class="cartao">
+<p><span class="rotulo">Arquivo</span> ${escape(filename)}</p>
+<p><span class="rotulo">Linhas aceitas</span> ${preview.accepted.length}
+&nbsp;·&nbsp; <span class="rotulo">Em quarentena</span> ${preview.quarantined.length}</p>
+<p>Esta é uma conferência: <strong>nada foi gravado ainda</strong>.</p>
+</div>
+<h2>Serão importadas</h2>
+${acceptedTable(preview)}
+<h2>Quarentena</h2>
+<p>Estas linhas não entram, e o resto do arquivo entra assim mesmo. Um arquivo
+nunca é recusado inteiro por causa de uma linha, e nenhuma linha é descartada
+em silêncio.</p>
+${quarantineTable(preview)}
+<form class="cartao" method="post" action="/carteiras/${encodeURIComponent(walletId)}/importacoes/confirmar">
+<input type="hidden" name="preparo" value="${escape(token)}">
+<p><button type="submit">Importar as ${preview.accepted.length} linhas aceitas</button></p>
+</form>`,
+  );
+}
+
+export function renderImportReportPage(
+  theme: TenantTheme,
+  walletId: string,
+  report: WalletImportReport,
+): string {
+  return importLayout(
+    theme,
+    walletId,
+    `<div class="cartao">
+<p><span class="rotulo">Importação</span> <code>${escape(report.importId)}</code></p>
+<p><span class="rotulo">Títulos criados</span> ${report.created}
+&nbsp;·&nbsp; <span class="rotulo">Atualizados</span> ${report.updated}
+&nbsp;·&nbsp; <span class="rotulo">Em quarentena</span> ${report.quarantined.length}</p>
+<p>Reimportar o mesmo arquivo não duplica nada: o título é identificado pelo
+<code>id_externo</code>, e a segunda passagem atualiza em vez de criar.</p>
+</div>
+<h2>Quarentena</h2>
+${quarantineTable(report)}
+<p><a href="/carteiras/${encodeURIComponent(walletId)}/prioridades">Ver as prioridades da carteira →</a></p>
+<p>Os dossiês são compostos por consulta, não pela importação: a carteira
+define quem pode ser consultado.</p>`,
   );
 }
 

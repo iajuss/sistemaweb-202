@@ -1,5 +1,8 @@
 import type { AddressInfo } from "node:net";
 
+import { parseWalletFile } from "../../../../packages/adapters/src/wallet-importers/wallet-file.js";
+
+import { createInMemoryImportStaging } from "../http/import-staging.js";
 import { createHttpServer } from "../http/server.js";
 import {
   DEMO,
@@ -78,6 +81,11 @@ async function main(): Promise<void> {
         runtime.snapshots.get(dossierId) ?? null,
     },
     priorities: { listForWallet: async () => runtime.priorities },
+    // The same importer the seeding above ran, now reachable from a browser:
+    // the screen adds a delivery layer, never a second import path.
+    walletFiles: { parse: (bytes) => parseWalletFile(bytes) },
+    imports: runtime.store,
+    staging: createInMemoryImportStaging(),
     // White label from the tenant row, not from a constant in this file.
     theme: {
       read: (principal, operation) =>
@@ -123,6 +131,7 @@ async function main(): Promise<void> {
   console.log(
     `  ${base}/carteiras/${DEMO.walletId}/dossies/${runtime.priorities[0]?.dossierId ?? "dossie-1"}`,
   );
+  console.log(`  ${base}/carteiras/${DEMO.walletId}/importacoes`);
   console.log("");
   console.log("Toda requisição precisa do cabeçalho: Authorization: Bearer demo");
   console.log(

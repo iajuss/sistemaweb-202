@@ -19,8 +19,11 @@ import type {
   WalletAuthorizationRepository,
 } from "@panella/application";
 
+import { parseWalletFile } from "../../../../packages/adapters/src/wallet-importers/wallet-file.js";
+
 import { dossierFrom } from "../../../../fixtures/policy/dossiers.js";
 
+import { createInMemoryImportStaging } from "./import-staging.js";
 import { createRouter, type HttpRequest } from "./router.js";
 import type { TenantTheme } from "./views.js";
 
@@ -156,6 +159,13 @@ function router(
     theme: {
       read: async () =>
         overrides.theme === undefined ? THEME : overrides.theme,
+    },
+    walletFiles: { parse: (bytes) => parseWalletFile(bytes) },
+    staging: createInMemoryImportStaging(),
+    imports: {
+      titles: { upsertByExternalId: async () => "CRIADO" },
+      debtors: { resolveByCpf: async () => "debtor-a" },
+      imports: { record: async () => undefined },
     },
     observations: { listForDebtor: async () => [] },
     snapshots: {

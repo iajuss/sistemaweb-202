@@ -15,23 +15,55 @@ import { createRouter, type HttpRequest, type RouterDependencies } from "./route
  */
 
 const MAX_BODY_BYTES = 1_048_576;
+/**
+ * An uploaded wallet is a spreadsheet, not a JSON document, so it gets its own
+ * ceiling. Eight megabytes is far more than a client's title export and still
+ * small enough that a process cannot be pushed over by one request.
+ */
+const MAX_UPLOAD_BYTES = 8 * 1_048_576;
 
-async function readBody(message: IncomingMessage): Promise<unknown> {
+async function collect(
+  message: IncomingMessage,
+  limit: number,
+): Promise<Buffer[]> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of message) {
     const buffer = Buffer.from(chunk as Buffer);
     size += buffer.byteLength;
-    if (size > MAX_BODY_BYTES) {
+    if (size > limit) {
       throw new Error("CORPO_GRANDE_DEMAIS");
     }
     chunks.push(buffer);
   }
+  return chunks;
+}
+
+/**
+ * Three body shapes, decided by the declared content type and never guessed:
+ * an upload stays **bytes** (decoding a workbook as text corrupts it), a form
+ * post becomes a record of fields, and everything else is JSON as before.
+ */
+async function readBody(message: IncomingMessage): Promise<unknown> {
+  const contentType = message.headers["content-type"] ?? "";
+
+  if (/^multipart\/form-data/i.test(contentType)) {
+    const chunks = await collect(message, MAX_UPLOAD_BYTES);
+    return new Uint8Array(Buffer.concat(chunks));
+  }
+
+  const chunks = await collect(message, MAX_BODY_BYTES);
   if (chunks.length === 0) {
     return null;
   }
+  const text = Buffer.concat(chunks).toString("utf8");
+
+  if (/^application\/x-www-form-urlencoded/i.test(contentType)) {
+    return Object.fromEntries(new URLSearchParams(text));
+  }
+
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(text);
   } catch {
     throw new Error("CORPO_NAO_E_JSON");
   }

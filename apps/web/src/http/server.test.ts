@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 
 import { DevInsecureIdentityProvider } from "../../../../packages/adapters/src/identity-middleware.js";
@@ -14,6 +15,9 @@ import {
 } from "@panella/domain";
 import type { WalletAuthorizationRepository } from "@panella/application";
 
+import { parseWalletFile } from "../../../../packages/adapters/src/wallet-importers/wallet-file.js";
+
+import { createInMemoryImportStaging } from "./import-staging.js";
 import { createHttpServer } from "./server.js";
 
 /**
@@ -47,7 +51,7 @@ const authorization: WalletAuthorizationRepository = {
       ? {
           tenantId: "tenant-a",
           walletId,
-          actions: ["READ_DOSSIER", "READ_ACTIONABLE"],
+          actions: ["READ_DOSSIER", "READ_ACTIONABLE", "IMPORT_WALLET"],
         }
       : null,
   containsCpf: async () => false,
@@ -62,6 +66,9 @@ const identityRepository: IdentityActorRepository = {
     roles: [],
   }),
 };
+
+/** What the wallet import actually wrote, so the socket test can check it. */
+const imported: string[] = [];
 
 let baseUrl = "";
 let server: ReturnType<typeof createHttpServer>;
@@ -109,6 +116,18 @@ beforeAll(async () => {
       ],
     },
     debtorNames: { findNameInWallet: async () => "JOSE SILVA" },
+    walletFiles: { parse: (bytes) => parseWalletFile(bytes) },
+    staging: createInMemoryImportStaging(),
+    imports: {
+      titles: {
+        upsertByExternalId: async (_principal, _operation, title) => {
+          imported.push(title.externalId);
+          return "CRIADO";
+        },
+      },
+      debtors: { resolveByCpf: async (_principal, _operation, cpf) => `d-${cpf}` },
+      imports: { record: async () => undefined },
+    },
     theme: {
       read: async () => ({
         nomeDoProduto: "Triagem de Cobrança",
@@ -174,6 +193,60 @@ describe("the three endpoints answer over a socket", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/markdown");
     expect(text).toContain("prompt_version");
+  });
+});
+
+/**
+ * The upload is the one body `node:http` hands over raw, and the one the
+ * transport must not decode as JSON. Nothing below is a fixture of an upload:
+ * it is `FormData` over a socket, which is what a browser sends.
+ */
+describe("the import screen answers over a socket", () => {
+  const carteira = readFileSync(
+    new URL("../../../../fixtures/wallet/invalid-cpf.csv", import.meta.url),
+  );
+
+  it("previews an uploaded wallet without importing it", async () => {
+    const form = new FormData();
+    form.set("arquivo", new Blob([carteira]), "carteira.csv");
+
+    const response = await fetch(
+      `${baseUrl}/carteiras/wallet-a/importacoes`,
+      { method: "POST", headers: AUTH, body: form },
+    );
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(html).toContain("TIT-010");
+    expect(html).toContain("CPF_INVALIDO");
+    expect(html).not.toContain("390.533.447-05");
+    expect(imported).toEqual([]);
+  });
+
+  it("imports the previewed file when the operator confirms", async () => {
+    const form = new FormData();
+    form.set("arquivo", new Blob([carteira]), "carteira.csv");
+    const preview = await (
+      await fetch(`${baseUrl}/carteiras/wallet-a/importacoes`, {
+        method: "POST",
+        headers: AUTH,
+        body: form,
+      })
+    ).text();
+    const token = /name="preparo" value="([^"]+)"/.exec(preview)?.[1] ?? "";
+
+    const response = await fetch(
+      `${baseUrl}/carteiras/wallet-a/importacoes/confirmar`,
+      {
+        method: "POST",
+        headers: { ...AUTH, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ preparo: token }).toString(),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(imported).toEqual(["TIT-010", "TIT-012"]);
   });
 });
 
