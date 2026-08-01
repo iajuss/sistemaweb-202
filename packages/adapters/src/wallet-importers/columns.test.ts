@@ -176,3 +176,20 @@ describe("the example file an operator downloads first", () => {
     expect(committed).toBe(exampleWalletCsv());
   });
 });
+
+describe("the example file against the demo wallet", () => {
+  it("uses CPFs the demo does not already seed", () => {
+    // If it reused one, every accepted row would aggregate onto a debtor who
+    // already exists: three titles updated and no new line in the queue, which
+    // teaches the opposite of what the file is for.
+    const seededByTheDemo = ["529982247", "123111222", "111444777"];
+    const csv = exampleWalletCsv();
+
+    for (const base of seededByTheDemo) {
+      expect(csv).not.toContain(base);
+      expect(csv).not.toContain(
+        `${base.slice(0, 3)}.${base.slice(3, 6)}.${base.slice(6, 9)}`,
+      );
+    }
+  });
+});

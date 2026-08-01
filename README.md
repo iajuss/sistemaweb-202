@@ -16,6 +16,12 @@ camada de entrega.
 valor devido: a pontuação ordena **esforço de cobrança**, e o rodapé diz isso em
 toda tela para que ninguém a leia como probabilidade de pagamento.
 
+A fila é lida da carteira no banco, então **o que você importa aparece aqui na
+hora**. As duas últimas linhas da imagem são de uma carteira acabada de subir
+pela tela: marcadas **"sem dossiê composto"**, porque ninguém consultou fonte
+alguma sobre elas ainda — que é resposta diferente de "as fontes nada
+encontraram", e a tela não confunde as duas.
+
 ![Dossiê com campos, sinais e explicação](docs/img/02-dossie.png)
 
 **Dossiê.** Cada campo carrega valor, fonte, vínculo e data de coleta. O campo
@@ -383,9 +389,11 @@ fonte, e a explicação por extenso. O que vale reparar:
 um script, o que é a resposta errada para "como o cliente carrega a carteira"
 num sistema web.
 
-1. **Escolha um arquivo e clique em "Conferir antes de importar".** Para ver a
-   quarentena funcionando, use `fixtures/wallet/invalid-cpf.csv`: três linhas,
-   uma delas com dígito verificador que não fecha.
+1. **Escolha um arquivo e clique em "Conferir antes de importar".** Use o
+   [`docs/exemplo-carteira.csv`](docs/exemplo-carteira.csv) que a própria tela
+   oferece: quatro linhas, sendo duas do mesmo devedor e uma com dígito
+   verificador que não fecha. Depois de confirmar, a fila ganha **dois**
+   devedores novos — não três —, que é a diferença entre título e pessoa.
 2. **Confira e confirme.** A conferência mostra o que seria aceito — título,
    devedor, valor em reais e vencimento — e o que iria para quarentena, com
    **número da linha e motivo**. Só então o botão importa.

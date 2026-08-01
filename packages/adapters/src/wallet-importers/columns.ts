@@ -73,13 +73,17 @@ export const WALLET_COLUMNS: readonly WalletColumn[] = Object.freeze([
  * - one row with a check digit that does not close, so the quarantine is
  *   visible on the first try instead of being a paragraph nobody believes.
  *
- * Every CPF here is synthetic.
+ * Every CPF here is synthetic, and deliberately **outside** the set the demo
+ * wallet seeds. Reusing one of those would make every row of the example
+ * aggregate onto a debtor who already exists — three titles updated, no new
+ * line in the queue — which is the opposite of what an operator trying the
+ * file for the first time needs to see.
  */
 const EXAMPLE_ROWS: readonly string[] = Object.freeze([
-  "TIT-001;JOSE DA SILVA;529.982.247-25;1.234,56;10/03/2026",
-  "TIT-002;JOSE DA SILVA;529.982.247-25;89,90;10/04/2026",
-  "TIT-003;MARIA JOÃO CONCEIÇÃO;111.444.777-35;10.000,00;2026-05-01",
-  "TIT-004;CARLOS PEREIRA;529.982.247-26;300,00;20/06/2026",
+  "EXEMPLO-001;ANTONIA FERREIRA LOPES;371.829.456-73;1.234,56;10/03/2026",
+  "EXEMPLO-002;ANTONIA FERREIRA LOPES;371.829.456-73;89,90;10/04/2026",
+  "EXEMPLO-003;MARIA JOÃO CONCEIÇÃO;204.815.937-05;10.000,00;2026-05-01",
+  "EXEMPLO-004;CARLOS PEREIRA;845.206.173-09;300,00;20/06/2026",
 ]);
 
 export function exampleWalletCsv(): string {
