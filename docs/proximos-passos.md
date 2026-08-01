@@ -83,9 +83,14 @@ obtido por consentimento.
 
 O que a v1 já sustenta:
 
-- O schema de importação de carteira aceita canais de contato como campos
-  opcionais, e a recomendação de abordagem depende deles: sugerir ligação
-  humana para quem não tem telefone é recomendação inexecutável.
+- O importador tem **uma declaração única de colunas**
+  (`wallet-importers/columns.ts`), com um campo `required` por coluna, usada
+  pelos dois parsers e pela tela. Hoje as cinco colunas são obrigatórias e
+  **nenhum canal de contato é aceito** — acrescentar um é acrescentar uma linha
+  ali, e a tela e o arquivo de exemplo acompanham sozinhos. O que ainda não
+  existe é a consequência: a recomendação de abordagem não olha para contato, e
+  sugerir ligação humana para quem não tem telefone é recomendação
+  inexecutável.
 - O envelope de campo carrega fonte, data de coleta e confiança, então contato
   verificado e contato não verificado são distinguíveis por construção.
 - A resolução de identidade impede o modo de falha mais caro desse

@@ -8,6 +8,7 @@ import {
   type IdentityActorRepository,
 } from "../../../../packages/adapters/src/keycloak.js";
 import { parseWalletFile } from "../../../../packages/adapters/src/wallet-importers/wallet-file.js";
+import { WALLET_COLUMNS } from "../../../../packages/adapters/src/wallet-importers/columns.js";
 import { sourcePlanForUfs, type WalletGrant } from "@panella/domain";
 import type {
   AuthorizedWalletContext,
@@ -254,6 +255,64 @@ describe("UI — tela de importação de carteira", () => {
     expect(response.status).toBe(500);
     expect(JSON.stringify(response.body)).toContain("TEMA_NAO_CONFIGURADO");
   });
+
+  it("states the columns the file must have, taken from the parser", async () => {
+    // Derived, not typed out: the screen and the parser cannot disagree about
+    // the format, which is the whole reason the declaration is shared.
+    const html = (await harness().route(request({}))).body as string;
+
+    for (const column of WALLET_COLUMNS) {
+      expect(html).toContain(column.header);
+    }
+    expect(html).toContain("obrigatória");
+  });
+
+  it("offers an example file the operator can start from", async () => {
+    const html = (await harness().route(request({}))).body as string;
+
+    expect(html).toContain("exemplo-carteira.csv");
+  });
+});
+
+describe("a file whose columns do not match", () => {
+  function csv(header: string): Uint8Array {
+    return Buffer.from(`${header}\nTIT-1;JOSE;529.982.247-25;10,00;2026-03-10\n`, "utf8");
+  }
+
+  it("names what was expected and what was missing", async () => {
+    const response = await harness().route(
+      upload(csv("id_externo;nome;cpf;valor")),
+    );
+    const html = response.body as string;
+
+    expect(response.status).toBe(400);
+    // Not merely "the column names appear somewhere on the page" — the form
+    // always lists them. The refusal has to say which one was absent.
+    expect(html).toContain("Faltou no arquivo");
+    expect(html).toContain("Colunas encontradas no arquivo");
+    const faltou = html.slice(html.indexOf("Faltou no arquivo"));
+    expect(faltou.slice(0, 200)).toContain("vencimento");
+  });
+
+  it("never echoes a CPF back from a file exported without its header", async () => {
+    // The commonest mistake there is: the first data line becomes the header,
+    // and repeating it verbatim would print a CPF onto the screen.
+    const semCabecalho = Buffer.from(
+      "TIT-001;JOSE DA SILVA;529.982.247-25;1.234,56;2026-03-10\n",
+      "utf8",
+    );
+
+    const html = (await harness().route(upload(semCabecalho))).body as string;
+
+    // The page must be the detailed refusal, so the absence below is a real
+    // absence and not the absence of a report.
+    expect(html).toContain("Colunas encontradas no arquivo");
+    expect(html).toContain("coluna não reconhecida");
+    expect(html).not.toContain("529.982.247-25");
+    expect(html).not.toContain("529982247");
+    expect(html).not.toContain("982247");
+    expect(html).not.toContain("JOSE DA SILVA");
+  });
 });
 
 describe("a preview writes nothing", () => {
@@ -309,9 +368,13 @@ describe("a preview writes nothing", () => {
     const response = await harness().route(
       upload(Buffer.from("isto nao e uma carteira\n", "utf8")),
     );
+    const html = response.body as string;
 
     expect(response.status).toBe(400);
-    expect(JSON.stringify(response.body)).toContain("CABECALHO_INVALIDO");
+    expect(html).toContain("as colunas não batem");
+    // Every declared column is missing, and the operator is told so.
+    expect(html).toContain("Faltou no arquivo");
+    expect(html).toContain("vencimento");
   });
 
   it("refuses an upload carrying no file", async () => {

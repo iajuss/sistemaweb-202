@@ -1,16 +1,9 @@
+import { mapWalletColumns, type WalletColumnKey } from "./columns.js";
 import type { ParsedWalletFile, ParsedWalletRow } from "./parsed-file.js";
 
 const UTF8_BOM = [0xef, 0xbb, 0xbf] as const;
 
-const REQUIRED_COLUMNS = {
-  externalId: "id_externo",
-  name: "nome",
-  cpf: "cpf",
-  amount: "valor",
-  dueDate: "vencimento",
-} as const;
-
-type ColumnKey = keyof typeof REQUIRED_COLUMNS;
+type ColumnKey = WalletColumnKey;
 
 export type CsvEncoding = "UTF-8" | "UTF-8-BOM" | "CP1252";
 export type CsvDelimiter = ";" | ",";
@@ -92,34 +85,6 @@ function splitLine(line: string, delimiter: CsvDelimiter): string[] {
   return fields;
 }
 
-/**
- * The same header written by three ERPs differs in case, accent and padding and
- * still means the same column, so the name is compared in a folded form.
- */
-function foldHeader(raw: string): string {
-  return raw
-    .trim()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-}
-
-function mapColumns(headerFields: readonly string[]): Record<ColumnKey, number> {
-  const folded = headerFields.map(foldHeader);
-  const entries = Object.entries(REQUIRED_COLUMNS) as [ColumnKey, string][];
-  const positions = {} as Record<ColumnKey, number>;
-
-  for (const [key, header] of entries) {
-    const position = folded.indexOf(header);
-    if (position < 0) {
-      throw new Error("CABECALHO_INVALIDO");
-    }
-    positions[key] = position;
-  }
-
-  return positions;
-}
-
 export function parseWalletCsv(bytes: Uint8Array): ParsedWalletFile {
   const { encoding, text } = decode(bytes);
   // `\r\n` and `\n` both appear in client exports; a lone `\r` does not.
@@ -130,7 +95,7 @@ export function parseWalletCsv(bytes: Uint8Array): ParsedWalletFile {
   }
 
   const delimiter = detectDelimiter(lines[headerIndex]);
-  const columns = mapColumns(splitLine(lines[headerIndex], delimiter));
+  const columns = mapWalletColumns(splitLine(lines[headerIndex], delimiter));
   const rows: ParsedWalletRow[] = [];
 
   for (let index = headerIndex + 1; index < lines.length; index += 1) {

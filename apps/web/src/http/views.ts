@@ -9,6 +9,8 @@ import type {
   WalletImportReport,
 } from "@panella/application";
 
+import { WALLET_COLUMNS } from "../../../../packages/adapters/src/wallet-importers/columns.js";
+
 /**
  * The three pages, server-rendered as strings. No framework, no client bundle
  * and no new dependency: the same handlers the API uses produce the data, and
@@ -189,14 +191,69 @@ ${corpo}`,
   );
 }
 
+/**
+ * The expected format, described from the parser's own declaration. Writing
+ * the column names here by hand would be a third copy of the format, and the
+ * one nobody would remember to update.
+ */
+function columnsTable(): string {
+  const linhas = WALLET_COLUMNS.map(
+    (column) => `<tr>
+<td><code>${escape(column.header)}</code></td>
+<td>${column.required ? "obrigatória" : "opcional"}</td>
+<td>${escape(COLUNAS[column.header] ?? "")}</td>
+<td><code>${escape(column.exemplo)}</code></td>
+</tr>`,
+  ).join("\n");
+
+  return `<table>
+<thead><tr><th>Coluna</th><th>Situação</th><th>O que é</th><th>Exemplo</th></tr></thead>
+<tbody>
+${linhas}
+</tbody>
+</table>`;
+}
+
+/** Prose for the operator, keyed by the header the parser declares. */
+const COLUNAS: Readonly<Record<string, string>> = Object.freeze({
+  id_externo: "o identificador do título no sistema do cliente",
+  nome: "o nome do devedor como consta no título",
+  cpf: "com ou sem pontuação; dígito verificador é conferido",
+  valor: "em reais, com vírgula decimal",
+  vencimento: "AAAA-MM-DD ou DD/MM/AAAA",
+});
+
+function headerProblem(problema: WalletHeaderProblem): string {
+  const lista = (nomes: readonly string[]): string =>
+    nomes.map((nome) => `<code>${escape(nome)}</code>`).join(", ");
+
+  return `<div class="erro">
+<p>O arquivo não foi lido: <strong>as colunas não batem</strong>. Nada foi importado.</p>
+<p><strong>Faltou no arquivo:</strong> ${lista(problema.missing)}</p>
+<p><strong>Colunas encontradas no arquivo:</strong> ${lista(problema.found)}</p>
+<p>Se a exportação saiu <strong>sem a linha de cabeçalho</strong>, a primeira
+linha de dados foi lida como se fosse o cabeçalho — é o motivo mais comum, e
+por isso nada do conteúdo dessas colunas é repetido aqui.</p>
+</div>`;
+}
+
+export interface WalletHeaderProblem {
+  readonly expected: readonly string[];
+  readonly found: readonly string[];
+  readonly missing: readonly string[];
+}
+
 export function renderImportFormPage(
   theme: TenantTheme,
   walletId: string,
   erro?: string,
+  problema?: WalletHeaderProblem,
 ): string {
-  const aviso = erro
-    ? `<p class="erro">O arquivo não foi lido: <strong>${escape(erro)}</strong>. Nada foi importado.</p>`
-    : "";
+  const aviso = problema
+    ? headerProblem(problema)
+    : erro
+      ? `<p class="erro">O arquivo não foi lido: <strong>${escape(erro)}</strong>. Nada foi importado.</p>`
+      : "";
 
   return importLayout(
     theme,
@@ -207,10 +264,19 @@ export function renderImportFormPage(
 <p><input type="file" name="arquivo" accept=".csv,.xlsx" required></p>
 <p><button type="submit">Conferir antes de importar</button></p>
 </form>
+<h2>O que o arquivo precisa ter</h2>
 <p>Uma linha do arquivo é <strong>um título</strong>, não um devedor: três
-parcelas do mesmo devedor são três linhas, e o devedor emerge da agregação.
-Colunas esperadas: <code>id_externo</code>, <code>nome</code>, <code>cpf</code>,
-<code>valor</code> e <code>vencimento</code>. O arquivo pode ser CSV ou XLSX.</p>
+parcelas do mesmo devedor são três linhas, e o devedor emerge da agregação por
+CPF. O arquivo pode ser CSV ou XLSX, e o formato é reconhecido pelo conteúdo,
+não pela extensão.</p>
+${columnsTable()}
+<p>Todas as colunas acima são obrigatórias; nenhuma é opcional hoje. Maiúscula,
+acento e espaço em volta do nome da coluna não importam. Em CSV, aceitamos
+UTF-8, UTF-8 com BOM e CP1252, com <code>;</code> ou <code>,</code> como
+separador.</p>
+<p><a href="/exemplo-carteira.csv">Baixar um arquivo de exemplo</a> —
+<code>exemplo-carteira.csv</code>, com quatro linhas, uma delas propositalmente
+inválida para você ver a quarentena funcionando já na primeira tentativa.</p>
 <p>O próximo passo <strong>não grava nada</strong>: mostra o que seria aceito e
 o que iria para quarentena, e só então pergunta se pode importar.</p>`,
   );

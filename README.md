@@ -29,7 +29,8 @@ de decisão automatizada exige.
 **Importação de carteira.** A conferência antes de gravar: o que seria aceito e
 o que vai para quarentena, com **número da linha e motivo** — nunca o CPF. Uma
 linha inválida não derruba o arquivo inteiro, e nenhuma linha é descartada em
-silêncio.
+silêncio. A tela declara as colunas exigidas e oferece um
+[arquivo de exemplo](docs/exemplo-carteira.csv) para a primeira tentativa.
 
 - Regras permanentes do projeto: [`AGENTS.md`](AGENTS.md)
 - Decisões fechadas: [`docs/decisions/README.md`](docs/decisions/README.md)
@@ -412,6 +413,39 @@ Formatos aceitos: CSV (UTF-8, UTF-8 com BOM ou CP1252; delimitador `;` ou `,`;
 decimal com vírgula) e XLSX. O formato é decidido pelos **bytes** do arquivo, não
 pela extensão nem pelo `content-type` que o navegador mandou.
 
+**Vencimento aceita as duas formas:** `DD/MM/AAAA`, que é o que um ERP
+brasileiro exporta, e `AAAA-MM-DD`. Ano de dois dígitos é recusado — `26` tanto
+pode ser 1926 quanto 2026, e chutar o século de um vencimento é chutar se a
+dívida prescreveu.
+
+**Arquivo de exemplo:** [`docs/exemplo-carteira.csv`](docs/exemplo-carteira.csv),
+com quatro linhas — duas do mesmo devedor, para deixar claro que uma linha é um
+**título** e não uma pessoa, e uma com dígito verificador inválido, para a
+quarentena aparecer já na primeira tentativa. A própria tela oferece o download.
+O arquivo é gerado da mesma declaração de colunas que o parser usa, e um teste
+falha se os dois divergirem.
+
+#### Se você importar uma carteira de verdade, o dossiê vem vazio — e está certo
+
+As fixtures da PGFN commitadas trazem **CPFs sintéticos**. Um devedor real da
+sua planilha não está nelas, então todas as fontes respondem `NAO_ENCONTRADO`,
+a cobertura fecha em `DADOS_INSUFICIENTES` e a classificação sai sem sinal
+nenhum.
+
+**Isso é o comportamento correto, não defeito.** Fonte que não encontrou não
+vira mau pagador, e cobertura insuficiente nunca vira nota baixa — é o
+invariante central do motor. Para ver a classificação com sinais aplicados, use
+a carteira de demonstração que o `pnpm demo` semeia: ela foi construída para
+casar com as fixtures.
+
+#### O que sobe some no próximo `pnpm demo`
+
+O comando **rezera o tenant de demonstração** a cada start: apaga títulos,
+devedores, observações e importações daquele tenant antes de semear de novo.
+Uma carteira subida pela tela vive até o próximo restart. Some junto, e pelo
+mesmo motivo, a chave AEAD em memória (pendência F-5): o processo que cifrou um
+CPF é o único capaz de lê-lo de volta.
+
 ### 10. Derrubar
 
 ```bash
@@ -430,7 +464,7 @@ As suítes são separadas porque exigem coisas diferentes:
 pnpm test:unit
 ```
 
-585 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
+626 testes, nenhum toca rede nem Docker. É a suíte que roda num clone limpo sem
 nada no ar.
 
 ```bash

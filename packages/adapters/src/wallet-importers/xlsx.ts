@@ -1,17 +1,10 @@
 import type { RawTitleRow } from "@panella/domain";
 
+import { mapWalletColumns, type WalletColumnKey } from "./columns.js";
 import type { ParsedWalletFile, ParsedWalletRow } from "./parsed-file.js";
 import { readZipEntries } from "./zip.js";
 
-const REQUIRED_COLUMNS = {
-  externalId: "id_externo",
-  name: "nome",
-  cpf: "cpf",
-  amount: "valor",
-  dueDate: "vencimento",
-} as const;
-
-type ColumnKey = keyof typeof REQUIRED_COLUMNS;
+type ColumnKey = WalletColumnKey;
 
 /** Built-in number formats that mean "this number is a date". */
 const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
@@ -156,32 +149,6 @@ function cellText(
     : numberToSpreadsheetMoney(value);
 }
 
-function foldHeader(raw: string): string {
-  return raw
-    .trim()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-}
-
-function mapColumns(headerCells: readonly string[]): Record<ColumnKey, number> {
-  const folded = headerCells.map(foldHeader);
-  const positions = {} as Record<ColumnKey, number>;
-
-  for (const [key, header] of Object.entries(REQUIRED_COLUMNS) as [
-    ColumnKey,
-    string,
-  ][]) {
-    const position = folded.indexOf(header);
-    if (position < 0) {
-      throw new Error("CABECALHO_INVALIDO");
-    }
-    positions[key] = position;
-  }
-
-  return positions;
-}
-
 export interface SheetRow {
   readonly rowNumber: number;
   readonly cells: readonly string[];
@@ -238,7 +205,7 @@ export function parseWalletXlsx(bytes: Uint8Array): ParsedWalletFile {
     throw new Error("ARQUIVO_VAZIO");
   }
 
-  const columns = mapColumns(headerRow.cells);
+  const columns = mapWalletColumns(headerRow.cells);
   const rows: ParsedWalletRow[] = [];
 
   for (const row of sheetRows) {

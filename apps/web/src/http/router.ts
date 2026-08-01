@@ -32,6 +32,8 @@ import {
   type WalletTitleLookup,
 } from "@panella/application";
 
+import { exampleWalletCsv } from "../../../../packages/adapters/src/wallet-importers/columns.js";
+
 import type { WalletImportStaging } from "./import-staging.js";
 import { parseMultipartFormData } from "./multipart.js";
 import {
@@ -41,6 +43,7 @@ import {
   renderImportReportPage,
   renderPrioritiesPage,
   type TenantTheme,
+  type WalletHeaderProblem,
 } from "./views.js";
 
 /**
@@ -558,9 +561,18 @@ export function createRouter(
         ),
       );
     } catch (error) {
+      // A column mismatch is the one refusal worth explaining in detail: the
+      // operator can fix it, but only if told what was looked for and what
+      // arrived. The detail is built by the parser, which sanitises it —
+      // a file exported without its header would otherwise put a CPF here.
       return html(
         400,
-        renderImportFormPage(theme, walletId, codeOf(error, "ARQUIVO_INVALIDO")),
+        renderImportFormPage(
+          theme,
+          walletId,
+          codeOf(error, "ARQUIVO_INVALIDO"),
+          headerProblemOf(error),
+        ),
       );
     }
   }
@@ -611,6 +623,21 @@ export function createRouter(
   }
 
   return async function route(request: HttpRequest): Promise<HttpResponse> {
+    if (request.path === "/exemplo-carteira.csv") {
+      // The example the import screen links to. It carries no personal data —
+      // every CPF in it is synthetic — so it is the one route with nothing to
+      // authorize, and it is served from the parser's own declaration rather
+      // than from a file on disk.
+      return {
+        status: 200,
+        contentType: "text/csv; charset=utf-8",
+        body: exampleWalletCsv(),
+        headers: {
+          "content-disposition": 'attachment; filename="exemplo-carteira.csv"',
+        },
+      };
+    }
+
     const lookup = LOOKUP.exec(request.path);
     const priorities = PRIORITIES.exec(request.path);
     const prompt = PROMPT.exec(request.path);
@@ -662,6 +689,27 @@ export function createRouter(
     }
     return handlePrompt(request, identity, (prompt as RegExpExecArray)[1]);
   };
+}
+
+/**
+ * Read structurally rather than by class: the detail is attached by the parser
+ * in the adapters layer, and the delivery layer has no business importing from
+ * there to name its error type.
+ */
+function headerProblemOf(error: unknown): WalletHeaderProblem | undefined {
+  if (!(error instanceof Error) || error.message !== "CABECALHO_INVALIDO") {
+    return undefined;
+  }
+  const candidate = error as unknown as WalletHeaderProblem;
+  return Array.isArray(candidate.missing) &&
+    Array.isArray(candidate.found) &&
+    Array.isArray(candidate.expected)
+    ? {
+        expected: candidate.expected,
+        found: candidate.found,
+        missing: candidate.missing,
+      }
+    : undefined;
 }
 
 function codeOf(error: unknown, fallback: string): string {
